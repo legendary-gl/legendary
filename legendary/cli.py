@@ -687,15 +687,18 @@ class LegendaryCLI:
         if args.json:
             return self._print_json(vars(params), args.pretty_json)
 
+        # Copying existing env vars is required on Windows, probably a good idea on Linux
+        full_env = os.environ.copy()
+        full_env.update(params.environment)
+
         full_params = list()
         full_params.extend(params.launch_command)
+        if 'LEGENDARY_WRAPPER_EXE' in full_env:
+            full_params.append(full_env['LEGENDARY_WRAPPER_EXE'].strip())
         full_params.append(os.path.join(params.game_directory, params.game_executable))
         full_params.extend(params.game_parameters)
         full_params.extend(params.user_parameters)
         full_params.extend(params.egl_parameters)
-        # Copying existing env vars is required on Windows, probably a good idea on Linux
-        full_env = os.environ.copy()
-        full_env.update(params.environment)
 
         if 'CX_BOTTLE' in full_env and any('SharedSupport/CrossOver' in p for p in params.launch_command):
             # if using crossover, unset WINEPREFIX
