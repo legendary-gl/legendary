@@ -37,6 +37,8 @@ class LGDLFS:
         self._user_data = None
         # EGS entitlements
         self._entitlements = None
+        # EGS library items
+        self._library_items = None
         # EGS asset data
         self._assets = None
         # EGS metadata
@@ -216,6 +218,25 @@ class LGDLFS:
         self._assets = assets
         json.dump({platform: [a.__dict__ for a in assets] for platform, assets in self._assets.items()},
                   open(os.path.join(self.path, 'assets.json'), 'w'),
+                  indent=2, sort_keys=True)
+        
+    @property
+    def library_items(self):
+        if self._library_items is not None:
+            return self._library_items
+        try:
+            self._library_items = json.load( open(os.path.join(self.path, 'library_items.json')))
+            return self._library_items
+        except Exception as e:
+            self.log.debug(f'Failed to load library items data: {e!r}')
+            return None
+    
+    @library_items.setter
+    def library_items(self, library_items):
+        if library_items is None:
+            raise ValueError("Library items is none!")
+        self._library_items = library_items
+        json.dump(library_items, open(os.path.join(self.path, 'library_items.json'), 'w'),
                   indent=2, sort_keys=True)
 
     def _get_manifest_filename(self, app_name, version, platform=None):

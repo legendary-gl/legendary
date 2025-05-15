@@ -283,7 +283,7 @@ class LegendaryCLI:
         versions = dict()
         for game in games:
             try:
-                versions[game.app_name] = self.core.get_asset(game.app_name, platform=game.platform).build_version
+                versions[game.app_name] = self.core.get_asset(game.app_name, platform=game.platform, namespace=game.namespace).build_version
             except ValueError:
                 logger.warning(f'Metadata for "{game.app_name}" is missing, the game may have been removed from '
                                f'your account or not be in legendary\'s database yet, try rerunning the command '
@@ -875,6 +875,23 @@ class LegendaryCLI:
             else:
                 logger.warning(f'No asset found for platform "{args.platform}", '
                                f'trying anyway since --no-install is set.')
+        elif not args.namespace and len(game.asset_infos[args.platform]) > 1:
+            asset_infos = []
+            for asset in game.asset_infos[args.platform]:
+                namespace_info = game.namespaces.get(asset.namespace)
+                if namespace_info:
+                    asset_infos.append((namespace_info.get('sandboxType'), namespace_info.get('sandboxName'), asset.namespace))
+            type_name_str = '\n'.join([f'{_t}\t{_n}\t{_ns}' for _t,_n,_ns in asset_infos])
+            logger.error('You have access to more than one asset for this game\n'
+                         f'Type\tName\tNamespace\n'
+                         +type_name_str
+                         +'\nuse --namespace to pick one')
+            exit(1)
+        
+        if args.namespace and args.namespace not in game.namespaces:
+            available_namespaces = '\n'.join(list(game.namespaces.keys()))
+            logger.error("Unknown namespace\n" + available_namespaces)
+            exit(1)
 
         if game.is_dlc:
             logger.info('Install candidate is DLC')
@@ -979,6 +996,7 @@ class LegendaryCLI:
                                                           override_delta_manifest=args.override_delta_manifest,
                                                           preferred_cdn=args.preferred_cdn,
                                                           disable_https=args.disable_https,
+                                                          namespace=args.namespace,
                                                           bind_ip=args.bind_ip)
 
         # game is either up-to-date or hasn't changed, so we have nothing to do
@@ -1644,6 +1662,7 @@ class LegendaryCLI:
 
         manifest_data = None
         entitlements = None
+        namespace = args.namespace or game.namespace
         # load installed manifest or URI
         if args.offline or manifest_uri:
             if app_name and self.core.is_installed(app_name):
@@ -1659,20 +1678,21 @@ class LegendaryCLI:
                 logger.info('Game not installed and offline mode enabled, cannot load manifest.')
         elif game:
             entitlements = self.core.egs.get_user_entitlements_full()
-            egl_meta = self.core.egs.get_game_info(game.namespace, game.catalog_item_id)
+            egl_meta = self.core.egs.get_game_info(namespace, game.catalog_item_id)
             game.metadata = egl_meta
             # Get manifest if asset exists for current platform
             if args.platform in game.asset_infos:
-                manifest_data, _ = self.core.get_cdn_manifest(game, args.platform)
+                manifest_data, _ = self.core.get_cdn_manifest(game, args.platform, namespace)
 
         if game:
             game_infos = info_items['game']
             game_infos.append(InfoItem('App name', 'app_name', game.app_name, game.app_name))
             game_infos.append(InfoItem('Title', 'title', game.app_title, game.app_title))
-            game_infos.append(InfoItem('Latest version', 'version', game.app_version(args.platform),
-                                       game.app_version(args.platform)))
-            all_versions = {k: v.build_version for k, v in game.asset_infos.items()}
-            game_infos.append(InfoItem('All versions', 'platform_versions', all_versions, all_versions))
+            _v = game.app_version(args.platform, args.namespace)
+            game_infos.append(InfoItem('Latest version', 'version', _v, _v))
+            all_versions = {k: '; '.join([a.build_version for a in v]) for k, v in game.asset_infos.items()}
+            all_versions_json = {k: [a.__dict__ for a in v] for k,v in game.asset_infos.items()}
+            game_infos.append(InfoItem('All versions', 'platform_versions', all_versions, all_versions_json))
             # Cloud save support for Mac and Windows
             game_infos.append(InfoItem('Cloud saves supported', 'cloud_saves_supported',
                                        game.supports_cloud_saves or game.supports_mac_cloud_saves,
@@ -1746,6 +1766,13 @@ class LegendaryCLI:
                     game_infos.append(InfoItem('Owned DLC', 'owned_dlc', None, []))
             else:
                 game_infos.append(InfoItem('Owned DLC', 'owned_dlc', None, []))
+
+            if len(game.namespaces.keys()) > 0:
+                all_namespaces = {_n['sandboxName']: '({}) - {}'.format(_n['sandboxType'], _n['namespace']) for _n in game.namespaces.values()}
+                game_infos.append(InfoItem('Namespaces', 'namespaces', all_namespaces, list(game.namespaces.values())))
+            else:
+                game_infos.append(InfoItem('Namespaces', 'namespaces', None, []))
+
 
             igame = self.core.get_installed_game(app_name)
             if igame:
@@ -2799,6 +2826,7 @@ def main():
                                 help='Do not ask about installing DLCs.')
     install_parser.add_argument('--bind', dest='bind_ip', action='store', metavar='<IPs>', type=str,
                                 help='Comma-separated list of IPs to bind to for downloading')
+    install_parser.add_argument('--namespace', dest='namespace', help='Specify namespace to pick sandbox from which to install')
 
     uninstall_parser.add_argument('--keep-files', dest='keep_files', action='store_true',
                                   help='Keep files but remove game from Legendary database')
@@ -2962,6 +2990,7 @@ def main():
                              help='Output information in JSON format')
     info_parser.add_argument('--platform', dest='platform', action='store', metavar='<Platform>', type=str,
                              help='Platform to fetch info for (default: installed or Mac on macOS, Windows otherwise)')
+    info_parser.add_argument('--namespace', dest='namespace', type=str, help='Specify namespace to return primary data of')
 
     store_group = activate_parser.add_mutually_exclusive_group(required=True)
     store_group.add_argument('-U', '--uplay', dest='uplay', action='store_true',

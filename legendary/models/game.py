@@ -71,15 +71,35 @@ class Game:
     app_name: str
     app_title: str
 
-    asset_infos: Dict[str, GameAsset] = field(default_factory=dict)
+    asset_infos: Dict[str, List[GameAsset]] = field(default_factory=dict)
     base_urls: List[str] = field(default_factory=list)
     metadata: Dict = field(default_factory=dict)
-    sidecar: Optional[Sidecar] = None
+    sidecars: Optional[Dict[str, Sidecar]] = None
+    namespaces: Dict = field(default_factory=dict)
 
-    def app_version(self, platform='Windows'):
+    def app_version(self, platform='Windows', namespace=None):
         if platform not in self.asset_infos:
             return None
-        return self.asset_infos[platform].build_version
+        if len(self.asset_infos[platform]) == 1:
+            return self.asset_infos[platform][0].build_version
+        
+        # Pick specified namespace, otherwise default to public one
+        if namespace is None:
+            return self._get_public_asset(platform).build_version
+        for asset in self.asset_infos[platform]:
+            if asset.namespace == namespace:
+                return asset.build_version
+
+        return self.asset_infos[platform][0].build_version
+    
+    def _get_public_asset(self, platform='Windows'):
+        if len(self.asset_infos[platform]) == 1:
+            return self.asset_infos[platform][0]
+        for asset in self.asset_infos[platform]:
+            version_namespace = self.namespaces.get(asset.namespace)
+            if version_namespace and version_namespace["sandboxType"].lower() == "public":
+                return asset
+        return self.asset_infos[platform][0]
 
     @property
     def is_dlc(self):
@@ -135,9 +155,10 @@ class Game:
 
     @property
     def namespace(self):
-        if not self.metadata:
-            return None
-        return self.metadata['namespace']
+        """Namespace of public asset"""
+        if self.asset_infos:
+            return self._get_public_asset().namespace
+        return self.metadata.get('namespace')
 
     @classmethod
     def from_json(cls, json):
@@ -146,14 +167,23 @@ class Game:
             app_title=json.get('app_title', ''),
         )
         tmp.metadata = json.get('metadata', dict())
-        if 'asset_infos' in json:
-            tmp.asset_infos = {k: GameAsset.from_json(v) for k, v in json['asset_infos'].items()}
+        if 'asset_infos_v2' in json:
+            tmp.asset_infos = {k: [GameAsset.from_json(a) for a in v] for k, v in json['asset_infos_v2'].items()}
+        elif 'asset_infos' in json:
+            # Migrate from one asset per platform to multiple
+            tmp.asset_infos = {k: [GameAsset.from_json(v)] for k, v in json['asset_infos'].items()}
         else:
             # Migrate old asset_info to new asset_infos
-            tmp.asset_infos['Windows'] = GameAsset.from_json(json.get('asset_info', dict()))
+            tmp.asset_infos['Windows'] = [GameAsset.from_json(json.get('asset_info', dict()))]
+        tmp.namespaces = json.get('namespaces', dict())
 
-        if sidecar := json.get('sidecar', None):
-            tmp.sidecar = Sidecar.from_json(sidecar)
+        # We used to get json.get('sidecar', None) here, lets drop that field and instead
+        # use per namespace mapping
+        if sidecars := json.get('sidecars', None):
+            tmp.sidecars = {namespace: Sidecar.from_json(sidecar) for namespace, sidecar in sidecars.items()}
+        elif sidecar := json.get('sidecar', None):
+            ns = tmp._get_public_asset().namespace
+            tmp.sidecars = {ns: Sidecar.from_json(sidecar)}
 
         tmp.base_urls = json.get('base_urls', list())
         return tmp
@@ -161,10 +191,11 @@ class Game:
     @property
     def __dict__(self):
         """This is just here so asset_infos gets turned into a dict as well"""
-        assets_dictified = {k: v.__dict__ for k, v in self.asset_infos.items()}
-        sidecar_dictified = self.sidecar.__dict__ if self.sidecar else None
-        return dict(metadata=self.metadata, asset_infos=assets_dictified, app_name=self.app_name,
-                    app_title=self.app_title, base_urls=self.base_urls, sidecar=sidecar_dictified)
+        assets_dictified = {k: [a.__dict__ for a in v] for k, v in self.asset_infos.items()}
+        sidecars_dictified = {k: s.__dict__ for k,s in self.sidecars.items()} if self.sidecars else None
+        return dict(metadata=self.metadata, asset_infos_v2=assets_dictified, app_name=self.app_name,
+                    app_title=self.app_title, base_urls=self.base_urls, sidecars=sidecars_dictified,
+                    namespaces=self.namespaces)
 
 
 @dataclass
@@ -176,6 +207,7 @@ class InstalledGame:
     install_path: str
     title: str
     version: str
+    namespace: Optional[str] = None
 
     base_urls: List[str] = field(default_factory=list)
     can_run_offline: bool = False
@@ -201,7 +233,7 @@ class InstalledGame:
             title=json.get('title', ''),
             version=json.get('version', ''),
         )
-
+        tmp.namespace = json.get('namespace', None)
         tmp.base_urls = json.get('base_urls', list())
         tmp.executable = json.get('executable', '')
         tmp.launch_parameters = json.get('launch_parameters', '')
