@@ -822,6 +822,8 @@ class LegendaryCLI:
         args.app_name = self._resolve_aliases(args.app_name)
         if self.core.is_installed(args.app_name):
             igame = self.core.get_installed_game(args.app_name)
+            if not args.namespace:
+                args.namespace = igame.namespace
             args.platform = igame.platform
             if igame.needs_verification and not args.repair_mode:
                 logger.info('Game needs to be verified before updating, switching to repair mode...')
