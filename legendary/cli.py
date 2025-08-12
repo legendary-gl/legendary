@@ -1690,7 +1690,7 @@ class LegendaryCLI:
             game_infos = info_items['game']
             game_infos.append(InfoItem('App name', 'app_name', game.app_name, game.app_name))
             game_infos.append(InfoItem('Title', 'title', game.app_title, game.app_title))
-            _v = game.app_version(args.platform, args.namespace)
+            _v = game.app_version(args.platform, namespace)
             game_infos.append(InfoItem('Latest version', 'version', _v, _v))
             all_versions = {k: '; '.join([a.build_version for a in v]) for k, v in game.asset_infos.items()}
             all_versions_json = {k: [a.__dict__ for a in v] for k,v in game.asset_infos.items()}
