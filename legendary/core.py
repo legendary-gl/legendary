@@ -518,6 +518,9 @@ class LegendaryCore:
 
         # append info about each library entry per namespace
         for record in library_items:
+            record_type = record.get("recordType")
+            if record_type and (record_type.lower() != "application"):
+                continue
             if game := games.get(record["appName"]):
                 game.namespaces.update({record["namespace"]: record})
                 self.lgd.set_game_meta(game.app_name, game)
