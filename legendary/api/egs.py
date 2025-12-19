@@ -250,6 +250,28 @@ class EPCAPI:
 
         return records
 
+    def get_game_achievements(self, namespace):
+        r = self.session.post(f'https://{self._store_gql_host}/graphql',
+                              headers={'user-agent': self._store_user_agent},
+                              json=dict(query=egl_game_achievements_query,
+                                        variables=dict(sandboxId=namespace,
+                                                       locale=self.language_code)),
+                              timeout=self.request_timeout)
+        r.raise_for_status()
+        return r.json()
+
+    def get_game_achievements_user(self, namespace):
+        user_id = self.user.get('account_id')
+        r = self.session.post(f'https://{self._store_gql_host}/graphql',
+                              headers={'user-agent': self._store_user_agent},
+                              json=dict(query=egl_game_achievements_user_query,
+                                        variables=dict(sandboxId=namespace,
+                                                       epicAccountId=user_id,
+                                                       locale=self.language_code)),
+                              timeout=self.request_timeout)
+        r.raise_for_status()
+        return r.json()
+
     def get_user_cloud_saves(self, app_name='', manifests=False, filenames=None):
         if app_name:
             app_name += '/manifests/' if manifests else '/'

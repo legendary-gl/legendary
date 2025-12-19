@@ -59,3 +59,87 @@ mutation claimUplayCode($accountId: String!, $uplayAccountId: String!, $gameId: 
   }
 }
 '''
+
+egl_game_achievements_query = '''
+query Achievement($sandboxId: String!, $locale: String!) {
+  Achievement {
+    productAchievementsRecordBySandbox(sandboxId: $sandboxId, locale: $locale) {
+      sandboxId
+      totalAchievements
+      totalProductXP
+      achievementSets {
+        achievementSetId
+        isBase
+        totalAchievements
+        totalXP
+      }
+      platinumRarity {
+        percent
+      }
+      achievements {
+        achievement {
+          name
+          hidden
+          isBase
+          unlockedDisplayName
+          lockedDisplayName
+          unlockedDescription
+          lockedDescription
+          unlockedIconId
+          lockedIconId
+          XP
+          flavorText
+          unlockedIconLink
+          lockedIconLink
+          tier {
+            name
+            hexColor
+            min
+            max
+          }
+          rarity {
+            percent
+          }
+        }
+      }
+    }
+  }
+}
+'''
+
+egl_game_achievements_user_query = '''
+query PlayerAchievement($epicAccountId: String!, $sandboxId: String!) {
+  PlayerAchievement {
+    playerAchievementGameRecordsBySandbox(epicAccountId: $epicAccountId, sandboxId: $sandboxId) {
+      records {
+        totalXP
+        totalUnlocked
+        playerAwards {
+          awardType
+          unlockedDateTime
+          achievementSetId
+        }
+        achievementSets {
+          achievementSetId
+          isBase
+          totalUnlocked
+          totalXP
+        }
+        playerAchievements {
+          playerAchievement {
+            sandboxId
+            epicAccountId
+            unlocked
+            progress
+            XP
+            unlockDate
+            achievementName
+            isBase
+            achievementSetId
+          }
+        }
+      }
+    }
+  }
+}
+'''
