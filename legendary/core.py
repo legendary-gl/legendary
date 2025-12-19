@@ -314,6 +314,23 @@ class LegendaryCore:
 
         return update_info.get('game_wiki', {}).get(app_name, {}).get(sys_platform)
 
+    def get_user_achievements(self, app_name: str, update: bool = False):
+        game = self.get_game(app_name, update_meta=True)
+        if not self.lgd.achievements or not self.lgd.achievements.get(game.namespace, None) or update:
+            if not (achievements := self.lgd.achievements):
+                achievements = {}
+            response = self.egs.get_game_achievements_user(game.namespace)
+            records = response['data']['PlayerAchievement']['playerAchievementGameRecordsBySandbox']['records']
+            achievements[game.app_name] = None
+            if records:
+                achievements[game.app_name] = records[0]
+            self.lgd.achievements = achievements
+
+        return self.lgd.achievements[app_name]
+
+    def get_game_achievements(self, app_name: str):
+        return self.get_game(app_name).achievements
+
     def get_sdl_data(self, app_name, platform='Windows'):
         if platform not in ('Win32', 'Windows'):
             app_name = f'{app_name}_{platform}'
@@ -431,15 +448,16 @@ class LegendaryCore:
                 continue
 
             game = self.lgd.get_game_meta(app_name)
-            asset_updated = sidecar_updated = False
+            asset_updated = sidecar_updated = achievements_updated = False
             if game:
                 asset_updated = any(game.app_version(_p) != app_assets[_p].build_version for _p in app_assets.keys())
                 # assuming sidecar data is the same for all platforms, just check the baseline (Windows) for updates.
                 sidecar_updated = (app_assets['Windows'].sidecar_rev > 0 and
                                    (not game.sidecar or game.sidecar.rev != app_assets['Windows'].sidecar_rev))
+                achievements_updated = not game.achievements or asset_updated
                 games[app_name] = game
 
-            if update_assets and (not game or force_refresh or (game and (asset_updated or sidecar_updated))):
+            if update_assets and (not game or force_refresh or (game and (asset_updated or sidecar_updated or achievements_updated))):
                 self.log.debug(f'Scheduling metadata update for {app_name}')
                 # namespace/catalog item are the same for all platforms, so we can just use the first one
                 _ga = next(iter(app_assets.values()))
@@ -463,8 +481,12 @@ class LegendaryCore:
                     sidecar_json = json.loads(manifest_info['sidecar']['config'])
                     sidecar = Sidecar(config=sidecar_json, rev=manifest_info['sidecar']['rvn'])
 
+            self.log.debug(f'Updating achivement information for {app_name}...')
+            achievements_api_response = self.egs.get_game_achievements(namespace)
+            achievements = Achievements.from_egs_json(achievements_api_response)
+
             game = Game(app_name=app_name, app_title=eg_meta['title'], metadata=eg_meta, asset_infos=assets[app_name],
-                        sidecar=sidecar)
+                        sidecar=sidecar, achievements=achievements)
             self.lgd.set_game_meta(game.app_name, game)
             games[app_name] = game
             try:
