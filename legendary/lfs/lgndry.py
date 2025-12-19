@@ -37,6 +37,8 @@ class LGDLFS:
         self._user_data = None
         # EGS entitlements
         self._entitlements = None
+        # EGS achievements
+        self._achievements = None
         # EGS asset data
         self._assets = None
         # EGS metadata
@@ -194,6 +196,27 @@ class LGDLFS:
 
         self._entitlements = entitlements
         json.dump(entitlements, open(os.path.join(self.path, 'entitlements.json'), 'w'),
+                  indent=2, sort_keys=True)
+
+    @property
+    def achievements(self):
+        if self._achievements is not None:
+            return self._achievements
+
+        try:
+            self._achievements = json.load(open(os.path.join(self.path, 'achievements.json')))
+            return self._achievements
+        except Exception as e:
+            self.log.debug(f'Failed to load achievements data: {e!r}')
+            return None
+
+    @achievements.setter
+    def achievements(self, achievements):
+        if achievements is None:
+            raise ValueError('Achievements is none!')
+
+        self._achievements = achievements
+        json.dump(achievements, open(os.path.join(self.path, 'achievements.json'), 'w'),
                   indent=2, sort_keys=True)
 
     @property
