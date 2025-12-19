@@ -66,9 +66,9 @@ class LegendaryCLI:
     @staticmethod
     def _print_json(data, pretty=False):
         if pretty:
-            print(json.dumps(data, indent=2, sort_keys=True))
+            print(json.dumps(data, indent=2, sort_keys=True, default=str))
         else:
-            print(json.dumps(data))
+            print(json.dumps(data, default=str))
 
     def auth(self, args):
         if args.auth_delete:
@@ -2626,6 +2626,57 @@ class LegendaryCLI:
         self.core.install_game(igame)
         logger.info('Finished.')
 
+    def achievements(self, args):
+        if not self.core.login():
+            logger.error('Login failed! Unable to check for EULAs.')
+            exit(1)
+
+        app_name = self._resolve_aliases(args.app_name)
+        game = self.core.get_game(app_name, update_meta=True)
+        if not game:
+            logger.error(f'No game found for "{app_name}"')
+            return
+
+        achievements = self.core.get_achievements(game, update=True)
+        if not achievements:
+            logger.info(f'No achievements found for "{game.app_name}"')
+            return
+
+        if args.json:
+            self._print_json(achievements, args.pretty_json)
+            return
+
+        print(f'* Achievements for "{game.app_title}"')
+        print(f'  Total achievements: {achievements["total_achievements"]}')
+        print(f'  Completed achievements: {achievements["user_unlocked"]}')
+        print(f'  Total XP: {achievements["total_product_xp"]}')
+        print(f'  Player XP: {achievements["user_xp"]}')
+        print(f'  Player awards: {achievements["user_awards"]}')
+
+        completed = filter(lambda x: x['unlock_date'] is not None, achievements['achievements'])
+        in_progress = filter(lambda x: 0.0 < x['progress'] < 1.0, achievements['achievements'])
+        visible = filter(lambda x: not x['hidden'] and x['unlock_date'] is None, achievements['achievements'])
+        hidden = filter(lambda x: x['hidden'], achievements['achievements'])
+
+        print(f'* Completed')
+        for a in completed:
+            print(f' - {a["display_name"]} | {a["xp"]}XP | {a["description"]} | Completed on: {a["unlock_date"]}')
+
+        print(f'* In progress')
+        for a in in_progress:
+            print(f' - {a["display_name"]} | {a["xp"]}XP |  {a["description"]} | Progress: {a["progress"] * 100:,.2f}%')
+
+        print(f'* Uninitiated')
+        for a in visible:
+            print(f' - {a["display_name"]} | {a["xp"]}XP | {a["description"]}')
+
+        if args.show_hidden:
+            print(f'* Undiscovered')
+            for a in hidden:
+                print(f' - {a["display_name"]} | {a["xp"]}XP) | {a["description"]}')
+
+        return
+
 
 def main():
     # Set output encoding to UTF-8 if not outputting to a terminal
@@ -2680,6 +2731,7 @@ def main():
     uninstall_parser = subparsers.add_parser('uninstall', help='Uninstall (delete) a game')
     verify_parser = subparsers.add_parser('verify', help='Verify a game\'s local files',
                                           aliases=('verify-game',), hide_aliases=True)
+    achievements_parser = subparsers.add_parser('achievements', help='List achievement status for a given game')
 
     # hidden commands have no help text
     get_token_parser = subparsers.add_parser('get-token')
@@ -3013,6 +3065,12 @@ def main():
     move_parser.add_argument('--skip-move', dest='skip_move', action='store_true',
                              help='Only change legendary database, do not move files (e.g. if already moved)')
 
+    achievements_parser.add_argument('app_name', metavar='<App Name>', help='Name of the app')
+    achievements_parser.add_argument('--hidden', dest='show_hidden', action='store_true',
+                                     help='Show undiscovered achievements (may contain spoilers)')
+    achievements_parser.add_argument('--json', dest='json', action='store_true',
+                                     help='Output information in JSON format')
+
     args, extra = parser.parse_known_args()
 
     if args.version:
@@ -3113,6 +3171,8 @@ def main():
             cli.crossover_setup(args)
         elif args.subparser_name == 'move':
             cli.move(args)
+        elif args.subparser_name == 'achievements':
+            cli.achievements(args)
     except KeyboardInterrupt:
         logger.info('Command was aborted via KeyboardInterrupt, cleaning up...')
 

@@ -314,11 +314,11 @@ class LegendaryCore:
 
         return update_info.get('game_wiki', {}).get(app_name, {}).get(sys_platform)
 
-    def get_user_achievements(self, app_name: str, update: bool = False):
-        game = self.get_game(app_name, update_meta=True)
-        if not self.lgd.achievements or not self.lgd.achievements.get(game.namespace, None) or update:
-            if not (achievements := self.lgd.achievements):
-                achievements = {}
+    def get_user_achievements(self, game: Game, update: bool = False):
+        if not (achievements := self.lgd.achievements):
+            achievements = {}
+
+        if not achievements or not achievements.get(game.app_name, None) or update:
             response = self.egs.get_game_achievements_user(game.namespace)
             records = response['data']['PlayerAchievement']['playerAchievementGameRecordsBySandbox']['records']
             achievements[game.app_name] = None
@@ -326,10 +326,67 @@ class LegendaryCore:
                 achievements[game.app_name] = records[0]
             self.lgd.achievements = achievements
 
-        return self.lgd.achievements[app_name]
+        return self.lgd.achievements[game.app_name]
 
-    def get_game_achievements(self, app_name: str):
-        return self.get_game(app_name).achievements
+    def get_achievements(self, game: Game, update: bool = False):
+        game_achievements = game.achievements
+        if not game_achievements.achievement_sets:
+            return None
+
+        user_achievements = self.get_user_achievements(game, update)
+        user_unlocked = {}
+        if user_achievements:
+            user_unlocked = {
+                ach['playerAchievement']['achievementName']: ach['playerAchievement'] for ach in
+                user_achievements['playerAchievements']
+            }
+
+        achievements = {
+            'total_achievements': game_achievements.total_achievements,
+            'total_product_xp': game_achievements.total_product_xp,
+            'achievement_sets': game_achievements.achievement_sets,
+            'platinum_rarity': game_achievements.platinum_rarity,
+            'achievements': []
+        }
+        achievements.update({
+            'user_unlocked': user_achievements['totalUnlocked'] if user_achievements else 0,
+            'user_xp': user_achievements['totalXP'] if user_achievements else 0,
+            'user_awards': user_achievements['playerAwards'] if user_achievements else [],
+        })
+
+        for item in game_achievements.achievements:
+            game_ach = item['achievement']
+            is_unlocked = game_ach['name'] in user_unlocked
+
+            _unlocked = False
+            _progress = 0.0
+            _unlock_date = None
+            if is_unlocked:
+                user_ach = user_unlocked[game_ach['name']]
+                _unlocked = user_ach['unlocked']
+                _progress = float(user_ach['progress'])
+                _unlock_date = user_ach['unlockDate']
+                _unlock_date = datetime.fromisoformat(_unlock_date[:-1]).replace(
+                    tzinfo=timezone.utc) if _unlock_date != "N/A" else None
+
+            data = {
+                'name': game_ach['name'],
+                'is_base': game_ach['isBase'],
+                'hidden': False if is_unlocked else game_ach['hidden'],
+                'xp': game_ach['XP'],
+                'unlocked': _unlocked,
+                'progress': _progress,
+                'unlock_date': _unlock_date if _unlock_date else None,
+                'display_name': game_ach['unlockedDisplayName'] if is_unlocked else game_ach['lockedDisplayName'],
+                'description': game_ach['unlockedDescription'] if is_unlocked else game_ach['lockedDescription'],
+                'icon_id': game_ach['unlockedIconId'] if is_unlocked else game_ach['lockedIconId'],
+                'icon_link': game_ach['unlockedIconLink'] if is_unlocked else game_ach['lockedIconLink'],
+                'tier': game_ach['tier'],
+                'rarity': game_ach['rarity'],
+            }
+            achievements['achievements'].append(data)
+
+        return achievements
 
     def get_sdl_data(self, app_name, platform='Windows'):
         if platform not in ('Win32', 'Windows'):
