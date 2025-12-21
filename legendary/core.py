@@ -346,7 +346,10 @@ class LegendaryCore:
             'total_product_xp': game_achievements.total_product_xp,
             'achievement_sets': game_achievements.achievement_sets,
             'platinum_rarity': game_achievements.platinum_rarity,
-            'achievements': []
+            'completed': [],
+            'in_progress': [],
+            'uninitiated': [],
+            'hidden': [],
         }
         achievements.update({
             'user_unlocked': user_achievements['totalUnlocked'] if user_achievements else 0,
@@ -384,7 +387,15 @@ class LegendaryCore:
                 'tier': game_ach['tier'],
                 'rarity': game_ach['rarity'],
             }
-            achievements['achievements'].append(data)
+
+            if data['unlocked']:
+                achievements['completed'].append(data)
+            elif 0.0 < data['progress'] < 1.0:
+                achievements['in_progress'].append(data)
+            elif not data['hidden'] and data['progress'] == 0.0:
+                achievements['uninitiated'].append(data)
+            elif data['hidden']:
+                achievements['hidden'].append(data)
 
         return achievements
 

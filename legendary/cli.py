@@ -2653,22 +2653,8 @@ class LegendaryCLI:
         print(f'  Player XP: {achievements["user_xp"]}')
         print(f'  Player awards: {achievements["user_awards"]}')
 
-        completed = []
-        in_progress = []
-        uninitiated = []
-        hidden = []
-        for ach in achievements['achievements']:
-            if ach['unlocked']:
-                completed.append(ach)
-            elif 0.0 < ach['progress'] < 1.0:
-                in_progress.append(ach)
-            elif not ach['hidden'] and ach['progress'] == 0.0:
-                uninitiated.append(ach)
-            elif ach['hidden']:
-                hidden.append(ach)
-
         for group, title in zip(
-            (completed, in_progress, uninitiated),
+            (achievements['completed'], achievements['in_progress'], achievements['uninitiated']),
             ('Completed', 'In progress', 'Uninitiated')
         ):
             print(f'* {title}')
@@ -2677,10 +2663,12 @@ class LegendaryCLI:
 
         if args.show_hidden:
             print('* Hidden')
-            for a in hidden:
+            for a in achievements['hidden']:
                 print(' - {display_name} | {xp}XP | {description} | Progress: {progress:.1%} | Completed on: {unlock_date}'.format(**a))
 
-        count = sum(map(len, (completed, in_progress, uninitiated, hidden)))
+        count = sum(
+            map(len, (achievements['completed'], achievements['in_progress'], achievements['uninitiated'], achievements['hidden']))
+        )
         logger.info(f'Found {count} achievements')
 
         return
