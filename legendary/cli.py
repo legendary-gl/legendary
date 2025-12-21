@@ -2653,27 +2653,35 @@ class LegendaryCLI:
         print(f'  Player XP: {achievements["user_xp"]}')
         print(f'  Player awards: {achievements["user_awards"]}')
 
-        completed = filter(lambda x: x['unlock_date'] is not None, achievements['achievements'])
-        in_progress = filter(lambda x: 0.0 < x['progress'] < 1.0, achievements['achievements'])
-        visible = filter(lambda x: not x['hidden'] and x['unlock_date'] is None, achievements['achievements'])
-        hidden = filter(lambda x: x['hidden'], achievements['achievements'])
+        completed = []
+        in_progress = []
+        uninitiated = []
+        hidden = []
+        for ach in achievements['achievements']:
+            if ach['unlocked']:
+                completed.append(ach)
+            elif 0.0 < ach['progress'] < 1.0:
+                in_progress.append(ach)
+            elif not ach['hidden'] and ach['progress'] == 0.0:
+                uninitiated.append(ach)
+            elif ach['hidden']:
+                hidden.append(ach)
 
-        print(f'* Completed')
-        for a in completed:
-            print(f' - {a["display_name"]} | {a["xp"]}XP | {a["description"]} | Completed on: {a["unlock_date"]}')
-
-        print(f'* In progress')
-        for a in in_progress:
-            print(f' - {a["display_name"]} | {a["xp"]}XP |  {a["description"]} | Progress: {a["progress"] * 100:,.2f}%')
-
-        print(f'* Uninitiated')
-        for a in visible:
-            print(f' - {a["display_name"]} | {a["xp"]}XP | {a["description"]}')
+        for group, title in zip(
+            (completed, in_progress, uninitiated),
+            ('Completed', 'In progress', 'Uninitiated')
+        ):
+            print(f'* {title}')
+            for a in group:
+                print(' - {display_name} | {xp}XP | {description} | Progress: {progress:.1%} | Completed on: {unlock_date}'.format(**a))
 
         if args.show_hidden:
-            print(f'* Undiscovered')
+            print('* Hidden')
             for a in hidden:
-                print(f' - {a["display_name"]} | {a["xp"]}XP) | {a["description"]}')
+                print(' - {display_name} | {xp}XP | {description} | Progress: {progress:.1%} | Completed on: {unlock_date}'.format(**a))
+
+        count = sum(map(len, (completed, in_progress, uninitiated, hidden)))
+        logger.info(f'Found {count} achievements')
 
         return
 
