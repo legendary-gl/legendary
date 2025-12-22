@@ -329,8 +329,7 @@ class LegendaryCore:
         return self.lgd.achievements[game.app_name]
 
     def get_achievements(self, game: Game, update: bool = False):
-        game_achievements = game.achievements
-        if not game_achievements.achievement_sets:
+        if not game.achievements.achievements:
             return None
 
         user_achievements = self.get_user_achievements(game, update)
@@ -342,10 +341,10 @@ class LegendaryCore:
             }
 
         achievements = {
-            'total_achievements': game_achievements.total_achievements,
-            'total_product_xp': game_achievements.total_product_xp,
-            'achievement_sets': game_achievements.achievement_sets,
-            'platinum_rarity': game_achievements.platinum_rarity,
+            'total_achievements': game.achievements.total_achievements,
+            'total_product_xp': game.achievements.total_product_xp,
+            'achievement_sets': game.achievements.achievement_sets,
+            'platinum_rarity': game.achievements.platinum_rarity,
             'completed': [],
             'in_progress': [],
             'uninitiated': [],
@@ -357,7 +356,7 @@ class LegendaryCore:
             'user_awards': user_achievements['playerAwards'] if user_achievements else [],
         })
 
-        for item in game_achievements.achievements:
+        for item in game.achievements.achievements:
             game_ach = item['achievement']
             is_unlocked = game_ach['name'] in user_unlocked
 
