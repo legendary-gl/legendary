@@ -314,25 +314,25 @@ class LegendaryCore:
 
         return update_info.get('game_wiki', {}).get(app_name, {}).get(sys_platform)
 
-    def get_user_achievements(self, game: Game, update: bool = False):
+    def get_user_achievements(self, namespace: str, update: bool = False):
         if not (achievements := self.lgd.achievements):
             achievements = {}
 
-        if not achievements or not achievements.get(game.app_name, None) or update:
-            response = self.egs.get_game_achievements_user(game.namespace)
+        if not achievements or not achievements.get(namespace, None) or update:
+            response = self.egs.get_game_achievements_user(namespace)
             records = response['data']['PlayerAchievement']['playerAchievementGameRecordsBySandbox']['records']
-            achievements[game.app_name] = None
+            achievements[namespace] = None
             if records:
-                achievements[game.app_name] = records[0]
+                achievements[namespace] = records[0]
             self.lgd.achievements = achievements
 
-        return self.lgd.achievements[game.app_name]
+        return self.lgd.achievements[namespace]
 
     def get_achievements(self, game: Game, update: bool = False):
         if not game.achievements.achievements:
             return None
 
-        user_achievements = self.get_user_achievements(game, update)
+        user_achievements = self.get_user_achievements(game.namespace, update)
         user_unlocked = {}
         if user_achievements:
             user_unlocked = {
