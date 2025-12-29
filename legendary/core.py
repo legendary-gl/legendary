@@ -396,6 +396,11 @@ class LegendaryCore:
             elif data['hidden']:
                 achievements['hidden'].append(data)
 
+        achievements['completed'] = sorted(achievements['completed'], key=lambda a: a['unlock_date'], reverse=True)
+        achievements['in_progress'] = sorted(achievements['in_progress'], key=lambda a: a['progress'], reverse=True)
+        achievements['uninitiated'] = sorted(achievements['uninitiated'], key=lambda a: a['xp'], reverse=False)
+        achievements['hidden'] = sorted(achievements['hidden'], key=lambda a: a['xp'], reverse=False)
+
         return achievements
 
     def get_sdl_data(self, app_name, platform='Windows'):
