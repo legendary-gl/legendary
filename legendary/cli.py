@@ -70,6 +70,13 @@ class LegendaryCLI:
         else:
             print(json.dumps(data))
 
+    @staticmethod
+    def _match_search(query, *fields):
+        """Return True if all whitespace-separated tokens in query appear in any of the given fields (case-insensitive)."""
+        tokens = query.lower().split()
+        combined = ' '.join(f.lower() for f in fields if f)
+        return all(t in combined for t in tokens)
+
     def auth(self, args):
         if args.auth_delete:
             self.core.lgd.invalidate_userdata()
@@ -216,6 +223,9 @@ class LegendaryCLI:
                 dlc_list[citem_id].extend(na_dlcs[citem_id])
             dlc_list[citem_id] = sorted(dlc_list[citem_id], key=lambda d: d.app_title.lower())
 
+        if args.search:
+            games = [g for g in games if self._match_search(args.search, g.app_title, g.app_name)]
+
         if args.csv or args.tsv:
             writer = csv.writer(stdout, dialect='excel-tab' if args.tsv else 'excel', lineterminator='\n')
             writer.writerow(['App name', 'App title', 'Version', 'Is DLC'])
@@ -279,6 +289,9 @@ class LegendaryCLI:
 
         games = sorted(self.core.get_installed_list(include_dlc=True),
                        key=lambda x: x.title.lower())
+
+        if args.search:
+            games = [g for g in games if self._match_search(args.search, g.title, g.app_name)]
 
         versions = dict()
         for game in games:
@@ -2873,6 +2886,8 @@ def main():
     list_parser.add_argument('--json', dest='json', action='store_true', help='List games in JSON format')
     list_parser.add_argument('--force-refresh', dest='force_refresh', action='store_true',
                              help='Force a refresh of all game metadata')
+    list_parser.add_argument('-s', '--search', dest='search', action='store', metavar='<query>',
+                             help='Filter results by title or app name (fuzzy, case-insensitive)')
 
     list_installed_parser.add_argument('--check-updates', dest='check_updates', action='store_true',
                                        help='Check for updates for installed games')
@@ -2884,6 +2899,8 @@ def main():
                                        help='List games in JSON format')
     list_installed_parser.add_argument('--show-dirs', dest='include_dir', action='store_true',
                                        help='Print installation directory in output')
+    list_installed_parser.add_argument('-s', '--search', dest='search', action='store', metavar='<query>',
+                                       help='Filter results by title or app name (fuzzy, case-insensitive)')
 
     list_files_parser.add_argument('--force-download', dest='force_download', action='store_true',
                                    help='Always download instead of using on-disk manifest')
