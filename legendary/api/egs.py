@@ -37,11 +37,13 @@ class EPCAPI:
 
         self.session = requests.session()
         self.session.headers['User-Agent'] = self._user_agent
+        self.session.auth = lambda r: r
         # increase maximum pool size for multithreaded metadata requests
         self.session.mount('https://', requests.adapters.HTTPAdapter(pool_maxsize=16))
 
         self.unauth_session = requests.session()
         self.unauth_session.headers['User-Agent'] = self._user_agent
+        self.unauth_session.auth = lambda r: r
 
         self._oauth_basic = HTTPBasicAuth(self._user_basic, self._pw_basic)
 
