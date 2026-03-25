@@ -235,9 +235,9 @@ class LGDLFS:
             except FileNotFoundError:  # all other errors should propagate
                 return None
 
-    def save_manifest(self, app_name, manifest_data, version, platform='Windows'):
+    def save_manifest(self, app_name, manifest, version, platform='Windows'):
         with open(self._get_manifest_filename(app_name, version, platform), 'wb') as f:
-            f.write(manifest_data)
+            manifest.write(f)
 
     def get_game_meta(self, app_name):
         if _meta := self._game_metadata.get(app_name, None):

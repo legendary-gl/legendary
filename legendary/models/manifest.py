@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import struct
+import base64
 import zlib
+from Cryptodome.Cipher import AES
 
 from base64 import b64encode
 from io import BytesIO
@@ -52,7 +54,9 @@ def write_fstring(bio, string):
 
 def get_chunk_dir(version):
     # The lowest version I've ever seen was 12 (Unreal Tournament), but for completeness sake leave all of them in
-    if version >= 15:
+    if version >= 22:
+        return 'ChunksV5'
+    elif version >= 15:
         return 'ChunksV4'
     elif version >= 6:
         return 'ChunksV3'
@@ -73,6 +77,8 @@ class Manifest:
         self.sha_hash = ''
         self.stored_as = 0
         self.version = 18
+        self.secret_guid = (0,0,0,0)
+        self.encryption_tag = b''
         self.data = b''
 
         # remainder
@@ -80,11 +86,49 @@ class Manifest:
         self.chunk_data_list: Optional[CDL] = None
         self.file_manifest_list: Optional[FML] = None
         self.custom_fields: Optional[CustomFields] = None
+        self.encrypted_data: Optional[EncryptedData] = None
 
     @property
     def compressed(self):
         return self.stored_as & 0x1
+    
+    @property
+    def encrypted(self):
+        return self.stored_as & 0x2
+    
+    def decrypt(self, secrets):
+        if not self.encrypted:
+            return True
+        secret_str = ''.join('{:08X}'.format(guid) for guid in self.secret_guid)
+        secret = secrets.get(secret_str)
+        if secret is None:
+            return False
+        cipher = AES.new(bytes.fromhex(secret), AES.MODE_GCM, nonce=self.encrypted_data.encrypted_header.iv)
+        decrypted = cipher.decrypt_and_verify(self.encrypted_data.ciphertext, self.encryption_tag)
+        if self.encrypted_data.encrypted_header.compressed:
+            decrypted = zlib.decompress(decrypted)
 
+        bio = BytesIO(decrypted)
+        self.meta.launch_exe = read_fstring(bio)
+        self.meta.launch_command = read_fstring(bio)
+        prereq_count = struct.unpack('<I', bio.read(4))[0]
+        self.meta.prereq_ids = [read_fstring(bio) for _ in range(prereq_count)]
+        self.meta.prereq_name = read_fstring(bio)
+        self.meta.prereq_path = read_fstring(bio)
+        self.meta.prereq_args = read_fstring(bio)
+        self.meta.uninstall_action_path = read_fstring(bio)
+        self.meta.uninstall_action_args = read_fstring(bio)
+
+        for file in self.file_manifest_list.elements:
+            file.filename = read_fstring(bio)
+            file.symlink_target = read_fstring(bio)
+
+        self.stored_as ^= 0x2
+        self.secret_guid = (0,0,0,0)
+        self.encrypted_data.reset()
+
+        return True
+        
     @classmethod
     def read_all(cls, data):
         _m = cls.read(data)
@@ -94,6 +138,7 @@ class Manifest:
         _m.chunk_data_list = CDL.read(_tmp, _m.meta.feature_level)
         _m.file_manifest_list = FML.read(_tmp)
         _m.custom_fields = CustomFields.read(_tmp)
+        _m.encrypted_data = EncryptedData.read(_tmp, _m.meta.feature_level)
 
         if unhandled_data := _tmp.read():
             logger.warning(f'Did not read {len(unhandled_data)} remaining bytes in manifest! '
@@ -119,6 +164,9 @@ class Manifest:
         _manifest.sha_hash = bio.read(20)
         _manifest.stored_as = struct.unpack('B', bio.read(1))[0]
         _manifest.version = struct.unpack('<I', bio.read(4))[0]
+        if _manifest.version >= 22:
+            _manifest.secret_guid = struct.unpack('<IIII', bio.read(16))
+            _manifest.encryption_tag = bio.read(16)
 
         if bio.tell() != _manifest.header_size:
             logger.warning(f'Did not read entire header {bio.tell()} != {_manifest.header_size}! '
@@ -152,10 +200,10 @@ class Manifest:
             target_version = max(18, target_version)
 
         # Downgrade manifest if unknown newer version
-        if target_version > 21:
+        if target_version > 24:
             logger.warning(f'Trying to serialise an unknown target version: {target_version},'
-                           f'clamping to 21.')
-            target_version = 21
+                           f'clamping to 24.')
+            target_version = 24
 
         # Ensure metadata will be correct
         self.meta.feature_level = target_version
@@ -164,6 +212,8 @@ class Manifest:
         self.chunk_data_list.write(body_bio)
         self.file_manifest_list.write(body_bio)
         self.custom_fields.write(body_bio)
+        if target_version >= 22:
+            self.encrypted_data.write(body_bio)
 
         self.data = body_bio.getvalue()
         self.size_uncompressed = self.size_compressed = len(self.data)
@@ -183,6 +233,10 @@ class Manifest:
         bio.write(self.sha_hash)
         bio.write(struct.pack('B', self.stored_as))
         bio.write(struct.pack('<I', target_version))
+        if target_version >= 22:
+            bio.write(struct.pack('<IIII', *self.secret_guid))
+            bio.write(self.encryption_tag)
+
         bio.write(self.data)
 
         return bio.tell() if fp else bio.getvalue()
@@ -433,6 +487,16 @@ class CDL:
         for chunk in _cdl.elements:
             chunk.file_size = struct.unpack('<q', bio.read(8))[0]
 
+        if manifest_version >= 22:
+            for chunk in _cdl.elements:
+                chunk.secret_guid = struct.unpack('<IIII', bio.read(16))
+
+            for chunk in _cdl.elements:
+                chunk.window_size_compressed = struct.unpack('<I', bio.read(4))[0]
+                
+            for chunk in _cdl.elements:
+                chunk.encryption_tag = bio.read(16)
+
         if (size_read := bio.tell() - cdl_start) != _cdl.size:
             logger.warning(f'Did not read entire chunk data list! Version: {_cdl.version}, '
                            f'{_cdl.size - size_read} bytes missing, skipping...')
@@ -461,6 +525,16 @@ class CDL:
         for chunk in self.elements:
             bio.write(struct.pack('<q', chunk.file_size))
 
+        if self._manifest_version >= 22:
+            for chunk in self.elements:
+                bio.write(struct.pack('<IIII', *chunk.secret_guid))
+
+            for chunk in self.elements:
+                bio.write(struct.pack('<I', chunk.window_size_compressed))
+                
+            for chunk in self.elements:
+                bio.write(chunk.encryption_tag)
+
         cdl_end = bio.tell()
         bio.seek(cdl_start)
         bio.write(struct.pack('<I', cdl_end - cdl_start))
@@ -474,6 +548,9 @@ class ChunkInfo:
         self.sha_hash = b''
         self.window_size = 0
         self.file_size = 0
+        self.secret_guid = None
+        self.window_size_compressed = 0
+        self.encryption_tag = b''
 
         self._manifest_version = manifest_version
         # caches for things that are "expensive" to compute
@@ -518,6 +595,13 @@ class ChunkInfo:
 
     @property
     def path(self):
+        if self._manifest_version >= 22:
+            secret_b64 = base64.urlsafe_b64encode(struct.pack('<IIII', *self.secret_guid)).decode().strip('=')
+            hash_b64 = base64.urlsafe_b64encode(struct.pack('<Q', self.hash)).decode().strip('=')
+            guid_b64 = base64.urlsafe_b64encode(struct.pack('<IIII', *self.guid)).decode().strip('=')
+            return '{}/{}/{:02d}/{}_{}.chunk'.format(
+                get_chunk_dir(self._manifest_version), secret_b64,
+                self.group_num, hash_b64, guid_b64)
         return '{}/{:02d}/{:016X}_{}.chunk'.format(
             get_chunk_dir(self._manifest_version), self.group_num,
             self.hash, ''.join('{:08X}'.format(g) for g in self.guid))
@@ -809,6 +893,110 @@ class CustomFields:
         bio.write(struct.pack('<I', cf_end - cf_start))
         bio.seek(cf_end)
 
+
+class EncryptedData:
+    def __init__(self):
+        self.size = 0
+        self.version = 0
+        
+        self.encrypted_header = EncryptedDataHeader()
+        self.ciphertext = b''
+
+    def reset(self):
+        self.size = 0
+        self.version = 0
+        self.ciphertext = b''
+        self.encrypted_header = EncryptedDataHeader()
+
+    @classmethod
+    def read(cls, bio, feature_level):
+        _ed = cls()
+        if feature_level < 24:
+            return _ed
+
+        ed_start = bio.tell()
+        _ed.size = struct.unpack('<I', bio.read(4))[0]
+        _ed.version = struct.unpack('B', bio.read(1))[0]
+        cipher_size = struct.unpack('<I', bio.read(4))[0]
+        data = BytesIO(bio.read(cipher_size))
+        _ed.encrypted_header = EncryptedDataHeader.read(data)
+        ciphertext_size = struct.unpack('<I', data.read(4))[0]
+        _ed.ciphertext = data.read(ciphertext_size)
+
+        if (size_read := bio.tell() - ed_start) != _ed.size:
+            logger.warning(f'Did not read entire encrypted data part! Version: {_ed.version}, '
+                           f'{_ed.size - size_read} bytes missing, skipping...')
+            bio.seek(_ed.size - size_read, 1)
+            _ed.version = 0
+        return _ed
+    
+    def write(self, bio):
+        ed_start = bio.tell()
+        bio.write(struct.pack('<I', 0))  # placeholder size
+        bio.write(struct.pack('B', self.version))
+
+        # FIXME: Ensure all sizes are properly set in the header        
+        cipher_start = bio.tell()
+        bio.write(struct.pack('<I', 0)) # cipher size
+        self.encrypted_header.write(bio)
+        bio.write(struct.pack('<I', len(self.ciphertext)))
+        bio.write(self.ciphertext)
+        
+        ed_end = bio.tell()
+        bio.seek(cipher_start)
+        bio.write(struct.pack('<I', ed_end - cipher_start))
+        bio.seek(ed_start)
+        bio.write(struct.pack('<I', ed_end - ed_start))
+        bio.seek(ed_end)
+
+class EncryptedDataHeader:
+    def __init__(self):
+        self.size = 0
+        self.version = 0
+        self.stored_as = 0
+        self.data_uncompressed = 0
+        self.data_compressed = 0
+        self.iv = b''
+
+    @property
+    def compressed(self):
+        return self.stored_as & 0x1
+
+    @classmethod
+    def read(cls, bio):
+        _edh = cls()
+        
+        edh_start = bio.tell()
+        _edh.size = struct.unpack('<I', bio.read(4))[0]
+        _edh.version = struct.unpack('<I', bio.read(4))[0]
+        _edh.stored_as = struct.unpack('B', bio.read(1))[0]
+        _edh.data_uncompressed = struct.unpack('<I', bio.read(4))[0]
+        _edh.data_compressed = struct.unpack('<I', bio.read(4))[0]
+        iv_len = struct.unpack('<I', bio.read(4))[0]
+        _edh.iv = bio.read(iv_len)
+    
+        if (size_read := bio.tell() - edh_start) != _edh.size:
+            logger.warning(f'Did not read entire encrypted header data part! Version: {_edh.version}, '
+                            f'{_edh.size - size_read} bytes missing, skipping...')
+            bio.seek(_edh.size - size_read, 1)
+            _edh.version = 0
+
+        return _edh
+    
+    def write(self, bio):
+        edh_start = bio.tell()
+        bio.write(struct.pack('<I', 0))
+        bio.write(struct.pack('<I', self.version))
+        bio.write(struct.pack('B', self.stored_as))
+        bio.write(struct.pack('<I', self.data_uncompressed))
+        bio.write(struct.pack('<I', self.data_compressed))
+        bio.write(struct.pack('<I', len(self.iv)))
+        bio.write(self.iv)
+        
+        end = bio.tell()
+        bio.seek(edh_start)
+        bio.write(struct.pack('<I', end - edh_start))
+        bio.seek(end)
 
 class ManifestComparison:
     def __init__(self):

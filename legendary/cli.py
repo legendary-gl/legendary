@@ -348,7 +348,7 @@ class LegendaryCLI:
             return
         elif args.app_name:
             args.app_name = self._resolve_aliases(args.app_name)
-
+        manifest_secrets = dict()
         # check if we even need to log in
         if args.override_manifest:
             logger.info(f'Loading manifest from "{args.override_manifest}"')
@@ -365,9 +365,12 @@ class LegendaryCLI:
             if not game:
                 logger.fatal(f'Could not fetch metadata for "{args.app_name}" (check spelling/account ownership)')
                 exit(1)
-            manifest_data, _ = self.core.get_cdn_manifest(game, platform=args.platform)
+            manifest_data, _, _, manifest_secrets = self.core.get_cdn_manifest(game, platform=args.platform)
 
         manifest = self.core.load_manifest(manifest_data)
+        if not manifest.decrypt(manifest_secrets):
+            logger.warning('Manifest key wasn\'t found. File names will be obfuscated')
+
         files = sorted(manifest.file_manifest_list.elements,
                        key=lambda a: a.filename.lower())
 
@@ -1224,6 +1227,8 @@ class LegendaryCLI:
             return
 
         manifest_data, _ = self.core.get_installed_manifest(args.app_name)
+        manifest_secrets = dict()
+        
         if manifest_data is None:
             if repair_mode:
                 if not repair_online:
@@ -1232,7 +1237,7 @@ class LegendaryCLI:
 
                 logger.warning('No manifest could be loaded, the file may be missing. Downloading the latest manifest.')
                 game = self.core.get_game(args.app_name, platform=igame.platform)
-                manifest_data, _ = self.core.get_cdn_manifest(game, igame.platform)
+                manifest_data, _, _, manifest_secrets = self.core.get_cdn_manifest(game, igame.platform)
             else:
                 logger.critical(f'Manifest appears to be missing! To repair, run "legendary repair '
                                 f'{args.app_name} --repair-and-update", this will however redownload all files '
@@ -1240,6 +1245,9 @@ class LegendaryCLI:
                 return
 
         manifest = self.core.load_manifest(manifest_data)
+        if not manifest.decrypt(manifest_secrets):
+            logger.critical('Unable to decrypt the manifest. The key appears to be missing. Please report this on GitHub.')
+            return
 
         files = sorted(manifest.file_manifest_list.elements,
                        key=lambda a: a.filename.lower())
@@ -1644,6 +1652,8 @@ class LegendaryCLI:
 
         manifest_data = None
         entitlements = None
+        is_preloaded = False
+        manifest_secrets = dict()
         # load installed manifest or URI
         if args.offline or manifest_uri:
             if app_name and self.core.is_installed(app_name):
@@ -1663,8 +1673,7 @@ class LegendaryCLI:
             game.metadata = egl_meta
             # Get manifest if asset exists for current platform
             if args.platform in game.asset_infos:
-                manifest_data, _ = self.core.get_cdn_manifest(game, args.platform)
-
+                manifest_data, _, is_preloaded, manifest_secrets = self.core.get_cdn_manifest(game, args.platform)
         if game:
             game_infos = info_items['game']
             game_infos.append(InfoItem('App name', 'app_name', game.app_name, game.app_name))
@@ -1788,6 +1797,8 @@ class LegendaryCLI:
         if manifest_data:
             manifest_info = info_items['manifest']
             manifest = self.core.load_manifest(manifest_data)
+            manifest.decrypt(manifest_secrets)
+
             manifest_size = len(manifest_data)
             manifest_size_human = f'{manifest_size / 1024:.01f} KiB'
             manifest_info.append(InfoItem('Manifest size', 'size', manifest_size_human, manifest_size))
@@ -1796,6 +1807,8 @@ class LegendaryCLI:
             manifest_info.append(InfoItem('Manifest version', 'version', manifest.version, manifest.version))
             manifest_info.append(InfoItem('Manifest feature level', 'feature_level',
                                           manifest.meta.feature_level, manifest.meta.feature_level))
+            manifest_info.append(InfoItem('Manifest compressed', 'compressed', bool(manifest.compressed), bool(manifest.compressed)))
+            manifest_info.append(InfoItem('Manifest encrypted', 'encrypted', bool(manifest.encrypted), bool(manifest.encrypted)))
             manifest_info.append(InfoItem('Manifest app name', 'app_name', manifest.meta.app_name,
                                           manifest.meta.app_name))
             manifest_info.append(InfoItem('Launch EXE', 'launch_exe',
@@ -1892,6 +1905,7 @@ class LegendaryCLI:
                                           tag_disk_size_human or 'N/A', tag_disk_size))
             manifest_info.append(InfoItem('Download size by install tag', 'tag_download_size',
                                           tag_download_size_human or 'N/A', tag_download_size))
+            manifest_info.append(InfoItem('Is preload', 'is_preloaded', is_preloaded, is_preloaded))
 
         if not args.json:
             def print_info_item(item: InfoItem):

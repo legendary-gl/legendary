@@ -1253,6 +1253,8 @@ class LegendaryCore:
             raise ValueError('Manifest response has more than one element!')
 
         manifest_hash = m_api_r['elements'][0]['hash']
+        manifest_is_preloaded: bool = m_api_r['elements'][0].get('isPreloaded') or False
+        manifest_secrets: dict = m_api_r['elements'][0].get('secrets') or dict()
         base_urls = []
         manifest_urls = []
         for manifest in m_api_r['elements'][0]['manifests']:
@@ -1266,10 +1268,10 @@ class LegendaryCore:
             else:
                 manifest_urls.append(manifest['uri'])
 
-        return manifest_urls, base_urls, manifest_hash
+        return manifest_urls, base_urls, manifest_hash, manifest_is_preloaded, manifest_secrets
 
     def get_cdn_manifest(self, game, platform='Windows', disable_https=False):
-        manifest_urls, base_urls, manifest_hash = self.get_cdn_urls(game, platform)
+        manifest_urls, base_urls, manifest_hash, manifest_is_preloaded, manifest_secrets = self.get_cdn_urls(game, platform)
         if not manifest_urls:
             raise ValueError('No manifest URLs returned by API')
 
@@ -1297,7 +1299,7 @@ class LegendaryCore:
         if sha1(manifest_bytes).hexdigest() != manifest_hash:
             raise ValueError('Manifest sha hash mismatch!')
 
-        return manifest_bytes, base_urls
+        return manifest_bytes, base_urls, manifest_is_preloaded, manifest_secrets
 
     def get_uri_manifest(self, uri):
         if uri.startswith('http'):
@@ -1359,11 +1361,14 @@ class LegendaryCore:
         if override_manifest:
             self.log.info(f'Overriding manifest with "{override_manifest}"')
             new_manifest_data, _base_urls = self.get_uri_manifest(override_manifest)
+            is_preloaded = False
+            # FIXME: Populate manifest secrets
+            manifest_secrets = dict()
             # if override manifest has a base URL use that instead
             if _base_urls:
                 base_urls = _base_urls
         else:
-            new_manifest_data, base_urls = self.get_cdn_manifest(game, platform, disable_https=disable_https)
+            new_manifest_data, base_urls, _, manifest_secrets = self.get_cdn_manifest(game, platform, disable_https=disable_https)
             # overwrite base urls in metadata with current ones to avoid using old/dead CDNs
             game.base_urls = base_urls
             # save base urls to game metadata
@@ -1371,9 +1376,12 @@ class LegendaryCore:
 
         self.log.info('Parsing game manifest...')
         new_manifest = self.load_manifest(new_manifest_data)
+        if not new_manifest.decrypt(manifest_secrets):
+            raise ValueError('Decrypting manifest failed, key was missing, preloading isnt implemented yet')
+
         self.log.debug(f'Base urls: {base_urls}')
         # save manifest with version name as well for testing/downgrading/etc.
-        self.lgd.save_manifest(game.app_name, new_manifest_data,
+        self.lgd.save_manifest(game.app_name, new_manifest,
                                version=new_manifest.meta.build_version,
                                platform=platform)
 
@@ -1496,7 +1504,7 @@ class LegendaryCore:
         if not max_workers:
             max_workers = self.lgd.config.getint('Legendary', 'max_workers', fallback=0)
 
-        dlm = DLManager(install_path, base_url, resume_file=resume_file, status_q=status_q,
+        dlm = DLManager(install_path, base_url, manifest_secrets, resume_file=resume_file, status_q=status_q,
                         max_shared_memory=max_shm * 1024 * 1024, max_workers=max_workers,
                         dl_timeout=dl_timeout, bind_ip=bind_ip)
         anlres = dlm.run_analysis(manifest=new_manifest, old_manifest=old_manifest,
@@ -1761,9 +1769,10 @@ class LegendaryCore:
                 if not needs_verify:
                     self.log.debug(f'No in-progress installation found, assuming complete...')
 
+        manifest_secrets = dict()
         if not manifest_data:
             self.log.info(f'Downloading latest manifest for "{game.app_name}"')
-            manifest_data, base_urls = self.get_cdn_manifest(game)
+            manifest_data, base_urls, is_preloaded, manifest_secrets = self.get_cdn_manifest(game)
             if not game.base_urls:
                 game.base_urls = base_urls
                 self.lgd.set_game_meta(game.app_name, game)
@@ -1773,7 +1782,8 @@ class LegendaryCore:
 
         # parse and save manifest to disk for verification step of import
         new_manifest = self.load_manifest(manifest_data)
-        self.lgd.save_manifest(game.app_name, manifest_data,
+        new_manifest.decrypt(manifest_secrets)
+        self.lgd.save_manifest(game.app_name, new_manifest,
                                version=new_manifest.meta.build_version, platform=platform)
         install_size = sum(fm.file_size for fm in new_manifest.file_manifest_list.elements)
 
@@ -1848,7 +1858,7 @@ class LegendaryCore:
         with open(manifest_filename, 'rb') as f:
             manifest_data = f.read()
         new_manifest = self.load_manifest(manifest_data)
-        self.lgd.save_manifest(lgd_igame.app_name, manifest_data,
+        self.lgd.save_manifest(lgd_igame.app_name, new_manifest,
                                version=new_manifest.meta.build_version,
                                platform='Windows')
 
@@ -2040,7 +2050,7 @@ class LegendaryCore:
         if not self.logged_in:
             self.egs.start_session(client_credentials=True)
 
-        _manifest, base_urls = self.get_cdn_manifest(EOSOverlayApp)
+        _manifest, base_urls, _, manifest_secrets = self.get_cdn_manifest(EOSOverlayApp)
         manifest = self.load_manifest(_manifest)
 
         if igame := self.lgd.get_overlay_install_info():
@@ -2048,7 +2058,7 @@ class LegendaryCore:
         else:
             path = path or os.path.join(self.get_default_install_dir(), '.overlay')
 
-        dlm = DLManager(path, base_urls[0])
+        dlm = DLManager(path, base_urls[0], manifest_secrets)
         analysis_result = dlm.run_analysis(manifest=manifest)
 
         install_size = analysis_result.install_size
@@ -2097,7 +2107,7 @@ class LegendaryCore:
         if os.path.exists(path):
             raise FileExistsError(f'Bottle {bottle_name} already exists')
 
-        dlm = DLManager(path, base_url)
+        dlm = DLManager(path, base_url, dict())
         analysis_result = dlm.run_analysis(manifest=manifest)
 
         install_size = analysis_result.install_size

@@ -35,10 +35,11 @@ class BindingHTTPAdapter(HTTPAdapter):
 
 class DLWorker(Process):
     def __init__(self, name, queue, out_queue, shm, max_retries=7,
-                 logging_queue=None, dl_timeout=10, bind_addr=None):
+                 logging_queue=None, dl_timeout=10, bind_addr=None, secrets=dict()):
         super().__init__(name=name)
         self.q = queue
         self.o_q = out_queue
+        self.secrets = secrets
         self.session = requests.session()
         self.session.headers.update({
             'User-Agent': 'EpicGamesLauncher/11.0.1-14907503+++Portal+Release-Live Windows/10.0.19041.1.256.64bit'
@@ -107,7 +108,7 @@ class DLWorker(Process):
                         continue
                     else:
                         compressed = len(r.content)
-                        chunk = Chunk.read_buffer(r.content)
+                        chunk = Chunk.read_buffer(r.content, self.secrets)
                         break
                 else:
                     raise TimeoutError('Max retries reached')

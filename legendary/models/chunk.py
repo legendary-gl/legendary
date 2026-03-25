@@ -6,6 +6,7 @@ import zlib
 from hashlib import sha1
 from io import BytesIO
 from uuid import uuid4
+from Cryptodome.Cipher import AES
 
 from legendary.utils.rolling_hash import get_hash
 
@@ -26,6 +27,10 @@ class Chunk:
         self.sha_hash = None
         self.uncompressed_size = 1024 * 1024
 
+        self.secret_guid = None
+        self.secret_key = None
+        self.encryption_tag = None
+
         self._guid_str = ''
         self._guid_num = 0
         self._bio = None
@@ -35,12 +40,15 @@ class Chunk:
     def data(self):
         if self._data:
             return self._data
-
+        
+        data = self._bio.read()
+        if self.encrypted:
+            cipher = AES.new(bytes.fromhex(self.secret_key), AES.MODE_GCM, nonce=self.sha_hash[:12])
+            data = cipher.decrypt_and_verify(data, self.encryption_tag)
         if self.compressed:
-            self._data = zlib.decompress(self._bio.read())
-        else:
-            self._data = self._bio.read()
+            data = zlib.decompress(data)
 
+        self._data = data
         # close BytesIO with raw data since we no longer need it
         self._bio.close()
         self._bio = None
@@ -78,14 +86,18 @@ class Chunk:
     @property
     def compressed(self):
         return self.stored_as & 0x1
+    
+    @property
+    def encrypted(self):
+        return self.stored_as & 0x2
 
     @classmethod
-    def read_buffer(cls, data):
+    def read_buffer(cls, data, secrets):
         _sio = BytesIO(data)
-        return cls.read(_sio)
+        return cls.read(_sio, secrets)
 
     @classmethod
-    def read(cls, bio):
+    def read(cls, bio, secrets=dict()):
         head_start = bio.tell()
 
         if struct.unpack('<I', bio.read(4))[0] != cls.header_magic:
@@ -106,6 +118,11 @@ class Chunk:
 
         if _chunk.header_version >= 3:
             _chunk.uncompressed_size = struct.unpack('<I', bio.read(4))[0]
+        
+        if _chunk.header_version >= 4:
+            _chunk.secret_guid = struct.unpack('<IIII', bio.read(16))
+            _chunk.secret_key = secrets.get(''.join('{:08X}'.format(g) for g in _chunk.secret_guid))
+            _chunk.encryption_tag = bio.read(16)
 
         if bio.tell() - head_start != _chunk.header_size:
             raise ValueError('Did not read entire chunk header!')
@@ -122,9 +139,10 @@ class Chunk:
             self.compressed_size = len(self._data)
 
         bio.write(struct.pack('<I', self.header_magic))
-        # we only serialize the latest version so version/size are hardcoded to 3/66
-        bio.write(struct.pack('<I', 3))
-        bio.write(struct.pack('<I', 66))
+        # we only serialize the latest version so version/size are hardcoded to 4/98
+        header_size = 98 if self.header_version >= 4 else 66
+        bio.write(struct.pack('<I', self.header_version))
+        bio.write(struct.pack('<I', header_size))
         bio.write(struct.pack('<I', self.compressed_size))
         bio.write(struct.pack('<IIII', *self.guid))
         bio.write(struct.pack('<Q', self.hash))
@@ -135,7 +153,13 @@ class Chunk:
         bio.write(struct.pack('B', self.hash_type))
 
         # header version 3 stuff
-        bio.write(struct.pack('<I', self.uncompressed_size))
+        if self.header_version >= 3:
+            bio.write(struct.pack('<I', self.uncompressed_size))
+
+        # header version 4
+        if self.header_version >= 4:
+            bio.write(struct.pack('<IIII', *self.secret_guid))
+            bio.write(self.encryption_tag)
 
         # finally, add the data
         bio.write(self._data)

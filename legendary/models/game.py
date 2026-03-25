@@ -192,6 +192,7 @@ class InstalledGame:
     uninstaller: Optional[Dict] = None
     requires_ot: bool = False
     save_path: Optional[str] = None
+    is_preloaded: bool = False
 
     @classmethod
     def from_json(cls, json):
@@ -218,6 +219,7 @@ class InstalledGame:
         tmp.install_size = json.get('install_size', 0)
         tmp.egl_guid = json.get('egl_guid', '')
         tmp.install_tags = json.get('install_tags', [])
+        tmp.is_preloaded = json.get('is_preloaded', False)
         return tmp
 
 

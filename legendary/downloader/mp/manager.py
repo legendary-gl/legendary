@@ -20,7 +20,7 @@ from legendary.models.manifest import ManifestComparison, Manifest
 
 
 class DLManager(Process):
-    def __init__(self, download_dir, base_url, cache_dir=None, status_q=None,
+    def __init__(self, download_dir, base_url, manifest_secrets: dict, cache_dir=None, status_q=None,
                  max_workers=0, update_interval=1.0, dl_timeout=10, resume_file=None,
                  max_shared_memory=1024 * 1024 * 1024, bind_ip=None):
         super().__init__(name='DLManager')
@@ -30,6 +30,7 @@ class DLManager(Process):
         self.base_url = base_url
         self.dl_dir = download_dir
         self.cache_dir = cache_dir or os.path.join(download_dir, '.cache')
+        self.manifest_secrets = manifest_secrets
 
         # All the queues!
         self.logging_queue = None
@@ -666,7 +667,7 @@ class DLManager(Process):
 
             w = DLWorker(f'DLWorker {i + 1}', self.dl_worker_queue, self.dl_result_q,
                          self.shared_memory.name, logging_queue=self.logging_queue,
-                         dl_timeout=self.dl_timeout, bind_addr=bind_ip)
+                         dl_timeout=self.dl_timeout, bind_addr=bind_ip, secrets=self.manifest_secrets)
             self.children.append(w)
             w.start()
 

@@ -38,7 +38,8 @@ setup(
         'requests<3.0',
         'setuptools',
         'wheel',
-        'filelock'
+        'filelock',
+        'pycryptodomex'
     ],
     extras_require=dict(
         webview=['pywebview>=3.4'],
