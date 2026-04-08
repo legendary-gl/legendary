@@ -123,7 +123,8 @@ class LGDLFS:
         self._installed_lock = FileLock(os.path.join(self.path, 'installed.json') + '.lock')
 
         try:
-            self._installed = json.load(open(os.path.join(self.path, 'installed.json')))
+            with open(os.path.join(self.path, 'installed.json')) as f:
+                self._installed = json.load(f)
         except Exception as e:
             self.log.debug(f'Loading installed games failed: {e!r}')
             self._installed = None
@@ -131,7 +132,8 @@ class LGDLFS:
         # load existing app metadata
         for gm_file in os.listdir(os.path.join(self.path, 'metadata')):
             try:
-                _meta = json.load(open(os.path.join(self.path, 'metadata', gm_file)))
+                with open(os.path.join(self.path, 'metadata', gm_file)) as f:
+                    _meta = json.load(f)
                 self._game_metadata[_meta['app_name']] = _meta
             except Exception as e:
                 self.log.debug(f'Loading game meta file "{gm_file}" failed: {e!r}')
@@ -140,7 +142,8 @@ class LGDLFS:
         self.aliases = dict()
         if not self.config.getboolean('Legendary', 'disable_auto_aliasing', fallback=False):
             try:
-                _j = json.load(open(os.path.join(self.path, 'aliases.json')))
+                with open(os.path.join(self.path, 'aliases.json')) as f:
+                    _j = json.load(f)
                 for app_name, aliases in _j.items():
                     for alias in aliases:
                         self.aliases[alias] = app_name
@@ -183,7 +186,8 @@ class LGDLFS:
             return self._entitlements
 
         try:
-            self._entitlements = json.load(open(os.path.join(self.path, 'entitlements.json')))
+            with open(os.path.join(self.path, 'entitlements.json')) as f:
+                self._entitlements = json.load(f)
             return self._entitlements
         except Exception as e:
             self.log.debug(f'Failed to load entitlements data: {e!r}')
@@ -195,14 +199,15 @@ class LGDLFS:
             raise ValueError('Entitlements is none!')
 
         self._entitlements = entitlements
-        json.dump(entitlements, open(os.path.join(self.path, 'entitlements.json'), 'w'),
-                  indent=2, sort_keys=True)
+        with open(os.path.join(self.path, 'entitlements.json'), 'w') as f:
+            json.dump(entitlements, f, indent=2, sort_keys=True)
 
     @property
     def assets(self):
         if self._assets is None:
             try:
-                tmp = json.load(open(os.path.join(self.path, 'assets.json')))
+                with open(os.path.join(self.path, 'assets.json')) as f:
+                    tmp = json.load(f)
                 self._assets = {k: [GameAsset.from_json(j) for j in v] for k, v in tmp.items()}
             except Exception as e:
                 self.log.debug(f'Failed to load assets data: {e!r}')
@@ -216,16 +221,17 @@ class LGDLFS:
             raise ValueError('Assets is none!')
 
         self._assets = assets
-        json.dump({platform: [a.__dict__ for a in assets] for platform, assets in self._assets.items()},
-                  open(os.path.join(self.path, 'assets.json'), 'w'),
-                  indent=2, sort_keys=True)
+        with open(os.path.join(self.path, 'assets.json'), 'w') as f:
+            json.dump({platform: [a.__dict__ for a in assets] for platform, assets in self._assets.items()},
+                      f, indent=2, sort_keys=True)
         
     @property
     def library_items(self):
         if self._library_items is not None:
             return self._library_items
         try:
-            self._library_items = json.load( open(os.path.join(self.path, 'library_items.json')))
+            with open(os.path.join(self.path, 'library_items.json')) as f:
+                self._library_items = json.load(f)
             return self._library_items
         except Exception as e:
             self.log.debug(f'Failed to load library items data: {e!r}')
@@ -236,8 +242,8 @@ class LGDLFS:
         if library_items is None:
             raise ValueError("Library items is none!")
         self._library_items = library_items
-        json.dump(library_items, open(os.path.join(self.path, 'library_items.json'), 'w'),
-                  indent=2, sort_keys=True)
+        with open(os.path.join(self.path, 'library_items.json'), 'w') as f:
+            json.dump(library_items, f, indent=2, sort_keys=True)
 
     def _get_manifest_filename(self, app_name, version, platform=None):
         if platform:
@@ -248,11 +254,13 @@ class LGDLFS:
 
     def load_manifest(self, app_name, version, platform='Windows'):
         try:
-            return open(self._get_manifest_filename(app_name, version, platform), 'rb').read()
+            with open(self._get_manifest_filename(app_name, version, platform), 'rb') as f:
+                return f.read()
         except FileNotFoundError:  # all other errors should propagate
             self.log.debug(f'Loading manifest failed, retrying without platform in filename...')
             try:
-                return open(self._get_manifest_filename(app_name, version), 'rb').read()
+                with open(self._get_manifest_filename(app_name, version), 'rb') as f:
+                    return f.read()
             except FileNotFoundError:  # all other errors should propagate
                 return None
 
@@ -269,7 +277,8 @@ class LGDLFS:
         json_meta = meta.__dict__
         self._game_metadata[app_name] = json_meta
         meta_file = os.path.join(self.path, 'metadata', f'{app_name}.json')
-        json.dump(json_meta, open(meta_file, 'w'), indent=2, sort_keys=True)
+        with open(meta_file, 'w') as f:
+            json.dump(json_meta, f, indent=2, sort_keys=True)
 
     def delete_game_meta(self, app_name):
         if app_name not in self._game_metadata:
@@ -333,7 +342,8 @@ class LGDLFS:
             self._installed_lock.acquire(blocking=False)
             # reload data in case it has been updated elsewhere
             try:
-                self._installed = json.load(open(os.path.join(self.path, 'installed.json')))
+                with open(os.path.join(self.path, 'installed.json')) as f:
+                    self._installed = json.load(f)
             except Exception as e:
                 self.log.debug(f'Failed to load installed game data: {e!r}')
 
@@ -344,7 +354,8 @@ class LGDLFS:
     def get_installed_game(self, app_name):
         if self._installed is None:
             try:
-                self._installed = json.load(open(os.path.join(self.path, 'installed.json')))
+                with open(os.path.join(self.path, 'installed.json')) as f:
+                    self._installed = json.load(f)
             except Exception as e:
                 self.log.debug(f'Failed to load installed game data: {e!r}')
                 return None
@@ -362,8 +373,8 @@ class LGDLFS:
         else:
             self._installed[app_name] = install_info.__dict__
 
-        json.dump(self._installed, open(os.path.join(self.path, 'installed.json'), 'w'),
-                  indent=2, sort_keys=True)
+        with open(os.path.join(self.path, 'installed.json'), 'w') as f:
+            json.dump(self._installed, f, indent=2, sort_keys=True)
 
     def remove_installed_game(self, app_name):
         if self._installed is None:
@@ -376,8 +387,8 @@ class LGDLFS:
             self.log.warning('Trying to remove non-installed game:', app_name)
             return
 
-        json.dump(self._installed, open(os.path.join(self.path, 'installed.json'), 'w'),
-                  indent=2, sort_keys=True)
+        with open(os.path.join(self.path, 'installed.json'), 'w') as f:
+            json.dump(self._installed, f, indent=2, sort_keys=True)
 
     def get_installed_list(self):
         if not self._installed:
@@ -408,7 +419,8 @@ class LGDLFS:
             return self._update_info
 
         try:
-            self._update_info = json.load(open(os.path.join(self.path, 'version.json')))
+            with open(os.path.join(self.path, 'version.json')) as f:
+                self._update_info = json.load(f)
         except Exception as e:
             self.log.debug(f'Failed to load cached update data: {e!r}')
             self._update_info = dict(last_update=0, data=None)
@@ -419,12 +431,13 @@ class LGDLFS:
         if not version_data:
             return
         self._update_info = dict(last_update=time(), data=version_data)
-        json.dump(self._update_info, open(os.path.join(self.path, 'version.json'), 'w'),
-                  indent=2, sort_keys=True)
+        with open(os.path.join(self.path, 'version.json'), 'w') as f:
+            json.dump(self._update_info, f, indent=2, sort_keys=True)
 
     def get_cached_sdl_data(self, app_name):
         try:
-            return json.load(open(os.path.join(self.path, 'tmp', f'{app_name}.json')))
+            with open(os.path.join(self.path, 'tmp', f'{app_name}.json')) as f:
+                return json.load(f)
         except Exception as e:
             self.log.debug(f'Failed to load cached SDL data: {e!r}')
             return None
@@ -432,17 +445,16 @@ class LGDLFS:
     def set_cached_sdl_data(self, app_name, sdl_version, sdl_data):
         if not app_name or not sdl_data:
             return
-        json.dump(dict(version=sdl_version, data=sdl_data),
-                  open(os.path.join(self.path, 'tmp', f'{app_name}.json'), 'w'),
-                  indent=2, sort_keys=True)
+        with open(os.path.join(self.path, 'tmp', f'{app_name}.json'), 'w') as f:
+            json.dump(dict(version=sdl_version, data=sdl_data), f, indent=2, sort_keys=True)
 
     def get_cached_overlay_version(self):
         if self._overlay_update_info:
             return self._overlay_update_info
 
         try:
-            self._overlay_update_info = json.load(open(
-                os.path.join(self.path, 'overlay_version.json')))
+            with open(os.path.join(self.path, 'overlay_version.json')) as f:
+                self._overlay_update_info = json.load(f)
         except Exception as e:
             self.log.debug(f'Failed to load cached Overlay update data: {e!r}')
             self._overlay_update_info = dict(last_update=0, data=None)
@@ -451,14 +463,14 @@ class LGDLFS:
 
     def set_cached_overlay_version(self, version_data):
         self._overlay_update_info = dict(last_update=time(), data=version_data)
-        json.dump(self._overlay_update_info,
-                  open(os.path.join(self.path, 'overlay_version.json'), 'w'),
-                  indent=2, sort_keys=True)
+        with open(os.path.join(self.path, 'overlay_version.json'), 'w') as f:
+            json.dump(self._overlay_update_info, f, indent=2, sort_keys=True)
 
     def get_overlay_install_info(self):
         if not self._overlay_install_info:
             try:
-                data = json.load(open(os.path.join(self.path, 'overlay_install.json')))
+                with open(os.path.join(self.path, 'overlay_install.json')) as f:
+                    data = json.load(f)
                 self._overlay_install_info = InstalledGame.from_json(data)
             except Exception as e:
                 self.log.debug(f'Failed to load overlay install data: {e!r}')
@@ -467,8 +479,8 @@ class LGDLFS:
 
     def set_overlay_install_info(self, igame: InstalledGame):
         self._overlay_install_info = igame
-        json.dump(vars(igame), open(os.path.join(self.path, 'overlay_install.json'), 'w'),
-                  indent=2, sort_keys=True)
+        with open(os.path.join(self.path, 'overlay_install.json'), 'w') as f:
+            json.dump(vars(igame), f, indent=2, sort_keys=True)
 
     def remove_overlay_install_info(self):
         try:
@@ -508,5 +520,5 @@ class LGDLFS:
             """Turn sets into sorted lists for storage"""
             return sorted(obj) if isinstance(obj, set) else obj
 
-        json.dump(alias_map, open(os.path.join(self.path, 'aliases.json'), 'w', newline='\n'),
-                  indent=2, sort_keys=True, default=serialise_sets)
+        with open(os.path.join(self.path, 'aliases.json'), 'w', newline='\n') as f:
+            json.dump(alias_map, f, indent=2, sort_keys=True, default=serialise_sets)
