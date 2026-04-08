@@ -183,6 +183,7 @@ class InstalledGame:
     executable: str = ''
     install_size: int = 0
     install_tags: List[str] = field(default_factory=list)
+    install_components: List[str] = field(default_factory=list)
     is_dlc: bool = False
     launch_parameters: str = ''
     manifest_path: str = ''
@@ -218,6 +219,7 @@ class InstalledGame:
         tmp.install_size = json.get('install_size', 0)
         tmp.egl_guid = json.get('egl_guid', '')
         tmp.install_tags = json.get('install_tags', [])
+        tmp.install_components = json.get('install_components', [])
         return tmp
 
 

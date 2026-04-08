@@ -1,3 +1,10 @@
+from InquirerPy import inquirer
+from InquirerPy.base.control import Choice
+from InquirerPy.separator import Separator
+
+from epic_expreval import Tokenizer
+from legendary.utils.selective_dl import LGDEvaluationContext, EXTRA_FUNCTIONS
+
 def get_boolean_choice(prompt, default=True):
     yn = 'Y/n' if default else 'y/N'
 
@@ -43,33 +50,44 @@ def get_int_choice(prompt, default=None, min_choice=None, max_choice=None, retur
             return choice
 
 
-def sdl_prompt(sdl_data, title):
-    tags = ['']
-    if '__required' in sdl_data:
-        tags.extend(sdl_data['__required']['tags'])
-
+def sdl_prompt(sdl_data, title, context):
     print(f'You are about to install {title}, this application supports selective downloads.')
-    print('The following optional packs are available (tag - name):')
-    for tag, info in sdl_data.items():
-        if tag == '__required':
+    choices = []
+    required_categories = {}
+    for element in sdl_data['Data']:
+        is_required = element.get('IsRequired', 'false').lower() == 'true'
+        has_children = 'Children' in element
+        is_invisible = element.get('Invisible', 'false').lower() == 'true'
+        if (is_required and not has_children) or is_invisible:
             continue
-        print(' *', tag, '-', info['name'])
-
-    examples = ', '.join([g for g in sdl_data.keys() if g != '__required'][:2])
-    print(f'Please enter tags of pack(s) to install (space/comma-separated, e.g. "{examples}")')
-    print('Leave blank to use defaults (only required data will be downloaded).')
-    choices = input('Additional packs [Enter to confirm]: ')
-    if not choices:
-        return tags
-
-    for c in choices.strip('"').replace(',', ' ').split():
-        c = c.strip()
-        if c in sdl_data:
-            tags.extend(sdl_data[c]['tags'])
+        
+        if element.get('ConfigHandler'):
+            choices.append(Separator(4 * '-' + ' ' + element['Title'] + ' ' + 4 * '-'))
+            is_required = element.get('IsRequired', 'false').lower() == 'true'
+            if is_required: required_categories[element['UniqueId']] = []
+            for child in element.get('Children', []):
+                enabled = element.get('IsDefaultSelected', 'false').lower() == 'true'
+                choices.append(Choice(child['UniqueId'], name=child['Title'], enabled=enabled))
+                if is_required: required_categories[element['UniqueId']].append(child['UniqueId'])
         else:
-            print('Invalid tag:', c)
+            enabled = False
+            if element.get('IsDefaultSelected', 'false').lower() == 'true':
+                expression = element.get('DefaultSelectedExpression')
+                if expression:
+                    tk = Tokenizer(expression, context)
+                    tk.extend_functions(EXTRA_FUNCTIONS)
+                    tk.compile()
+                    if tk.execute(''):
+                        enabled = True
+                else:
+                    enabled = True
+            choices.append(Choice(element['UniqueId'], name=element['Title'], enabled=enabled))
 
-    return tags
+    selected_packs = inquirer.checkbox(message='Select optional packs to install',
+                                       choices=choices,
+                                       cycle=True,
+                                       validate=lambda selected: not required_categories or all(any(item in selected for item in category) for category in required_categories.values())).execute()
+    return selected_packs
 
 
 def strtobool(val):

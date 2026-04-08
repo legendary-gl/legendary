@@ -1,2 +1,4 @@
 requests<3.0
 filelock
+epic-expreval=0.2
+InquirerPy

@@ -36,6 +36,8 @@ setup(
     ),
     install_requires=[
         'requests<3.0',
+        'epic-expreval==0.2',
+        'InquirerPy',
         'setuptools',
         'wheel',
         'filelock'

@@ -746,8 +746,6 @@ wrapper = "/path/with spaces/gamemoderun"
 no_wine = true
 ; Override the executable launched for this game, for example to bypass a launcher (e.g. Borderlands)
 override_exe = relative/path/to/file.exe
-; Disable selective downloading for this title
-disable_sdl = true
 
 [AppName3]
 ; Command to run before launching the gmae

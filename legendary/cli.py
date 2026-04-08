@@ -16,6 +16,7 @@ from logging.handlers import QueueListener
 from multiprocessing import freeze_support, Queue as MPQueue
 from platform import platform
 from sys import exit, stdout, platform as sys_platform
+from epic_expreval import Tokenizer
 
 from legendary import __version__, __codename__
 from legendary.core import LegendaryCore
@@ -27,7 +28,7 @@ from legendary.utils.custom_parser import HiddenAliasSubparsersAction
 from legendary.utils.env import is_windows_mac_or_pyi
 from legendary.lfs.eos import add_registry_entries, query_registry_entries, remove_registry_entries
 from legendary.lfs.utils import validate_files, clean_filename
-from legendary.utils.selective_dl import get_sdl_appname
+from legendary.utils.selective_dl import get_sdl_data, LGDEvaluationContext, parse_components_selection, EXTRA_FUNCTIONS
 from legendary.lfs.wine_helpers import read_registry, get_shell_folders, case_insensitive_file_search
 
 # todo custom formatter for cli logger (clean info, highlighted error/warning)
@@ -911,52 +912,30 @@ class LegendaryCLI:
             else:
                 logger.info(f'Using existing repair file: {repair_file}')
 
-        # check if SDL should be disabled
-        sdl_enabled = not args.install_tag and not game.is_dlc
-        config_tags = self.core.lgd.config.get(game.app_name, 'install_tags', fallback=None)
-        config_disable_sdl = self.core.lgd.config.getboolean(game.app_name, 'disable_sdl', fallback=False)
-        # remove config flag if SDL is reset
-        if config_disable_sdl and args.reset_sdl and not args.disable_sdl:
-            self.core.lgd.config.remove_option(game.app_name, 'disable_sdl')
-        # if config flag is not yet set, set it and remove previous install tags
-        elif not config_disable_sdl and args.disable_sdl:
-            logger.info('Clearing install tags from config and disabling SDL for title.')
-            if config_tags:
-                self.core.lgd.config.remove_option(game.app_name, 'install_tags')
-                config_tags = None
-            self.core.lgd.config.set(game.app_name, 'disable_sdl', 'true')
-            sdl_enabled = False
-        # just disable SDL, but keep config tags that have been manually specified
-        elif config_disable_sdl or args.disable_sdl:
-            sdl_enabled = False
-
-        if sdl_enabled and ((sdl_name := get_sdl_appname(game.app_name)) is not None):
-            if not self.core.is_installed(game.app_name) or config_tags is None or args.reset_sdl:
-                sdl_data = self.core.get_sdl_data(sdl_name, platform=args.platform)
-                if sdl_data:
-                    if args.skip_sdl:
-                        args.install_tag = ['']
-                        if '__required' in sdl_data:
-                            args.install_tag.extend(sdl_data['__required']['tags'])
-                    else:
-                        args.install_tag = sdl_prompt(sdl_data, game.app_title)
-                    self.core.lgd.config.set(game.app_name, 'install_tags', ','.join(args.install_tag))
-                else:
-                    logger.error(f'Unable to get SDL data for {sdl_name}')
+        logger.info('Checking for install components')
+        config_options = self.core.lgd.config.get(game.app_name, 'install_components', fallback=None)
+        install_components = args.install_component or []
+        sdl_data = get_sdl_data(self.core.lgd.egl_content_path, game.app_name, game.app_version(args.platform))
+        context = LGDEvaluationContext(self.core)
+        if not self.core.is_installed(game.app_name) or config_options is None or args.reset_sdl:
+            if sdl_data:
+                if not args.skip_sdl:
+                    install_components = sdl_prompt(sdl_data, game.app_title, context)
             else:
-                args.install_tag = config_tags.split(',')
-        elif args.install_tag and not game.is_dlc and not args.no_install:
-            config_tags = ','.join(args.install_tag)
-            logger.info(f'Saving install tags for "{game.app_name}" to config: {config_tags}')
-            self.core.lgd.config.set(game.app_name, 'install_tags', config_tags)
-        elif not game.is_dlc:
-            if config_tags and args.reset_sdl:
-                logger.info('Clearing install tags from config.')
-                self.core.lgd.config.remove_option(game.app_name, 'install_tags')
-            elif config_tags:
-                logger.info(f'Using install tags from config: {config_tags}')
-                args.install_tag = config_tags.split(',')
+                logger.error(f'Unable to get SDL data for {game.app_name}')
+        else:
+            install_components = config_options.split(',')
+        context.selection = set(install_components)
+            
+        install_tags = set()
+        if sdl_data:
+            parse_components_selection(sdl_data, context, install_components, install_tags)
 
+        if install_components:
+            self.core.lgd.config.set(game.app_name, 'install_components', ','.join(install_components))
+        install_tags = list(install_tags)
+        logger.debug(f'Selected components: {install_components}')
+        logger.debug(f'Selected tags: {install_tags}')
         logger.info(f'Preparing download for "{game.app_title}" ({game.app_name})...')
         # todo use status queue to print progress from CLI
         # This has become a little ridiculous hasn't it?
@@ -969,8 +948,10 @@ class LegendaryCLI:
                                                           override_base_url=args.override_base_url,
                                                           platform=args.platform,
                                                           file_prefix_filter=args.file_prefix,
+                                                          file_suffix_filter=args.file_suffix,
                                                           file_exclude_filter=args.file_exclude_prefix,
-                                                          file_install_tag=args.install_tag,
+                                                          file_install_tag=install_tags,
+                                                          game_install_components=install_components,
                                                           dl_optimizations=args.order_opt,
                                                           dl_timeout=args.dl_timeout,
                                                           repair=args.repair_mode,
@@ -1642,6 +1623,7 @@ class LegendaryCLI:
                            f'not being available on the selected platform or currently logged-in account.')
             args.offline = True
 
+        sdl_data = get_sdl_data(self.core.lgd.egl_content_path, app_name, game.app_version(args.platform)) or {}
         manifest_data = None
         entitlements = None
         # load installed manifest or URI
@@ -1761,11 +1743,11 @@ class LegendaryCLI:
                                                   igame.save_path))
                 installation_info.append(InfoItem('EGL sync GUID', 'synced_egl_guid', igame.egl_guid,
                                                   igame.egl_guid))
-                if igame.install_tags:
-                    tags = ', '.join(igame.install_tags)
+                if igame.install_components:
+                    opts = ', '.join(igame.install_components)
                 else:
-                    tags = '(None, all game data selected for install)'
-                installation_info.append(InfoItem('Install tags', 'install_tags', tags, igame.install_tags))
+                    opts = '(None, all game data selected for install)'
+                installation_info.append(InfoItem('Install components', 'install_components', opts, igame.install_components))
                 installation_info.append(InfoItem('Requires ownership verification token (DRM)', 'requires_ovt',
                                                   igame.requires_ot, igame.requires_ot))
 
@@ -1834,14 +1816,51 @@ class LegendaryCLI:
             else:
                 manifest_info.append(InfoItem('Uninstaller', 'uninstaller', None, None))
 
-            install_tags = {''}
-            for fm in manifest.file_manifest_list.elements:
-                for tag in fm.install_tags:
-                    install_tags.add(tag)
+            if sdl_data:
+                context = LGDEvaluationContext(self.core)
+                install_tags_human = []
+                install_tags_data = []
+                for element in sdl_data['Data']:
+                    if not element.get('Title'):
+                        continue
 
-            install_tags = sorted(install_tags)
-            install_tags_human = ', '.join(i if i else '(empty)' for i in install_tags)
-            manifest_info.append(InfoItem('Install tags', 'install_tags', install_tags_human, install_tags))
+                    is_required = element.get('IsRequired','false')=='true'
+                    is_default_selected = element.get('IsDefaultSelected','false')=='true'
+                    if is_default_selected and element.get('DefaultSelectedExpression'):
+                        tk = Tokenizer(element['DefaultSelectedExpression'], context)
+                        tk.extend_functions(EXTRA_FUNCTIONS)
+                        tk.compile()
+                        is_default_selected = tk.execute('')
+                    # This mapping abstracts expressions away from info command
+                    # marking default for options that apply to given user
+                    mapped_element = {
+                        'UniqueId': element.get('UniqueId'),
+                        'IsRequired': is_required,
+                        'IsDefaultSelected': is_default_selected
+                    }
+                    install_tags_data.append(mapped_element)
+
+                    for key in element.keys():
+                        if key.endswith('_translate'):
+                            mapped_element[key] = element[key] == 'true'
+                        elif key.startswith('Title') or key.startswith('Description'):
+                            mapped_element[key] = element[key]
+
+                    required_txt = ' (required)' if is_required else ''
+                    if element.get('Children'):
+                        mapped_element['ConfigHandler'] = element['ConfigHandler']
+                        mapped_element['Children'] = element['Children']
+
+                        install_tags_human.append(f'{element["Title"]}{required_txt}')
+                        for child in element.get('Children', []):
+                            install_tags_human.append(f'\t{child["UniqueId"]} - {child["Title"]}')
+                    else:
+                        install_tags_human.append(f'{element["UniqueId"]} - {element["Title"]}{required_txt}')
+            else:
+                install_tags_human = '(none)'
+                install_tags_data = None
+            
+            manifest_info.append(InfoItem('Install components', 'install_components', install_tags_human, install_tags_data))
             # file and chunk count
             manifest_info.append(InfoItem('Files', 'num_files', manifest.file_manifest_list.count,
                                           manifest.file_manifest_list.count))
@@ -1856,42 +1875,6 @@ class LegendaryCLI:
             chunk_size = '{:.02f} GiB'.format(total_size / 1024 / 1024 / 1024)
             manifest_info.append(InfoItem('Download size (compressed)', 'download_size',
                                           chunk_size, total_size))
-
-            # if there are install tags break down size by tag
-            tag_disk_size = []
-            tag_disk_size_human = []
-            tag_download_size = []
-            tag_download_size_human = []
-            if len(install_tags) > 1:
-                longest_tag = max(max(len(t) for t in install_tags), len('(empty)'))
-                for tag in install_tags:
-                    # sum up all file sizes for the tag
-                    human_tag = tag or '(empty)'
-                    tag_files = [fm for fm in manifest.file_manifest_list.elements if
-                                 (tag in fm.install_tags) or (not tag and not fm.install_tags)]
-                    tag_file_size = sum(fm.file_size for fm in tag_files)
-                    tag_disk_size.append(dict(tag=tag, size=tag_file_size, count=len(tag_files)))
-                    tag_file_size_human = '{:.02f} GiB'.format(tag_file_size / 1024 / 1024 / 1024)
-                    tag_disk_size_human.append(f'{human_tag.ljust(longest_tag)} - {tag_file_size_human} '
-                                               f'(Files: {len(tag_files)})')
-                    # tag_disk_size_human.append(f'Size: {tag_file_size_human}, Files: {len(tag_files)}, Tag: "{tag}"')
-                    # accumulate chunk guids used for this tag and count their size too
-                    tag_chunk_guids = set()
-                    for fm in tag_files:
-                        for cp in fm.chunk_parts:
-                            tag_chunk_guids.add(cp.guid_num)
-
-                    tag_chunk_size = sum(c.file_size for c in manifest.chunk_data_list.elements
-                                         if c.guid_num in tag_chunk_guids)
-                    tag_download_size.append(dict(tag=tag, size=tag_chunk_size, count=len(tag_chunk_guids)))
-                    tag_chunk_size_human = '{:.02f} GiB'.format(tag_chunk_size / 1024 / 1024 / 1024)
-                    tag_download_size_human.append(f'{human_tag.ljust(longest_tag)} - {tag_chunk_size_human} '
-                                                   f'(Chunks: {len(tag_chunk_guids)})')
-
-            manifest_info.append(InfoItem('Disk size by install tag', 'tag_disk_size',
-                                          tag_disk_size_human or 'N/A', tag_disk_size))
-            manifest_info.append(InfoItem('Download size by install tag', 'tag_download_size',
-                                          tag_download_size_human or 'N/A', tag_download_size))
 
         if not args.json:
             def print_info_item(item: InfoItem):
@@ -2625,7 +2608,52 @@ class LegendaryCLI:
         igame.install_path = new_path
         self.core.install_game(igame)
         logger.info('Finished.')
+    
+    def get_install_size(self, args):
+        args.app_name = self._resolve_aliases(args.app_name)
 
+        game = self.core.get_game(args.app_name, update_meta=False, platform=args.platform)
+        if not game:
+            game = self.core.get_game(args.app_name, update_meta=True, platform=args.platform)
+
+        version = game.app_version(args.platform)
+        manifest_data = self.core.lgd.load_manifest(game.app_name, version, args.platform)
+        if not manifest_data:
+            if not self.core.login():
+                logger.error('Login failed, cannot continue!')
+                exit(1)
+            manifest_data, _ = self.core.get_cdn_manifest(game, platform=args.platform)
+            self.core.lgd.save_manifest(game.app_name, manifest_data, version, args.platform)
+
+        manifest = self.core.load_manifest(manifest_data)
+        sdl_data = get_sdl_data(self.core.lgd.egl_content_path, game.app_name, version) or {}
+        install_components = args.install_component or []
+        install_tags = set()
+        if sdl_data:
+            context = LGDEvaluationContext(self.core)
+            context.selection.update(install_components)
+            parse_components_selection(sdl_data, context, install_components, install_tags)
+
+        files = manifest.file_manifest_list.elements
+        filtered = [f for f in files if any(tag in install_tags for tag in f.install_tags)]
+        
+        calculated_chunks = set()
+        install_size = 0
+        download_size = 0
+        for file in filtered:
+            install_size += file.file_size
+            for chunk in file.chunk_parts:
+                if chunk.guid_num in calculated_chunks:
+                    continue
+                data = manifest.chunk_data_list.get_chunk_by_guid_num(chunk.guid_num)
+                download_size += data.file_size
+                calculated_chunks.add(chunk.guid_num)
+
+        if args.json:
+            print(json.dumps({'download': download_size, 'install': install_size}))
+        else:
+            print(f'- Download size: {download_size / 1024 / 1024 / 1024:.02f} GiB')
+            print(f'- Install size: {install_size / 1024 / 1024 / 1024:.02f} GiB')
 
 def main():
     # Set output encoding to UTF-8 if not outputting to a terminal
@@ -2683,6 +2711,8 @@ def main():
 
     # hidden commands have no help text
     get_token_parser = subparsers.add_parser('get-token')
+    install_size_parser = subparsers.add_parser('install-size')
+
 
     # Positional arguments
     install_parser.add_argument('app_name', help='Name of the app', metavar='<App Name>')
@@ -2764,10 +2794,12 @@ def main():
                                 help='Platform for install (default: installed or Windows)')
     install_parser.add_argument('--prefix', dest='file_prefix', action='append', metavar='<prefix>',
                                 help='Only fetch files whose path starts with <prefix> (case insensitive)')
+    install_parser.add_argument('--suffix', dest='file_suffix', action='append', metavar='<suffix>',
+                                help='Only fetch files whose path ends with <prefix> (case insensitive)')
     install_parser.add_argument('--exclude', dest='file_exclude_prefix', action='append', metavar='<prefix>',
                                 type=str, help='Exclude files starting with <prefix> (case insensitive)')
-    install_parser.add_argument('--install-tag', dest='install_tag', action='append', metavar='<tag>',
-                                type=str, help='Only download files with the specified install tag')
+    install_parser.add_argument('--install-component', dest='install_component', action='append', metavar='<id>',
+                                type=str, help='Only download files with the specified optional download id')
     install_parser.add_argument('--enable-reordering', dest='order_opt', action='store_true',
                                 help='Enable reordering optimization to reduce RAM requirements '
                                      'during download (may have adverse results for some titles)')
@@ -2787,8 +2819,6 @@ def main():
                                 help='Reset selective downloading choices (requires repair to download new components)')
     install_parser.add_argument('--skip-sdl', dest='skip_sdl', action='store_true',
                                 help='Skip SDL prompt and continue with defaults (only required game data)')
-    install_parser.add_argument('--disable-sdl', dest='disable_sdl', action='store_true',
-                                help='Disable selective downloading for title, reset existing configuration (if any)')
     install_parser.add_argument('--preferred-cdn', dest='preferred_cdn', action='store', metavar='<hostname>',
                                 help='Set the hostname of the preferred CDN to use when available')
     install_parser.add_argument('--no-https', dest='disable_https', action='store_true',
@@ -2799,6 +2829,16 @@ def main():
                                 help='Do not ask about installing DLCs.')
     install_parser.add_argument('--bind', dest='bind_ip', action='store', metavar='<IPs>', type=str,
                                 help='Comma-separated list of IPs to bind to for downloading')
+
+    install_size_parser.add_argument('app_name', metavar='<App Name>')
+    install_size_parser.add_argument('--install-component', dest='install_component', action='append', metavar='<id>',
+                                type=str, help='Specify what component should be treated as selected')
+    
+    install_size_parser.add_argument('--platform', dest='platform', action='store', metavar='<Platform>', type=str,
+                                help='Platform for install (default: Windows)')
+    
+    install_size_parser.add_argument('--json', dest='json', action='store_true',
+                               help='Print information as JSON')
 
     uninstall_parser.add_argument('--keep-files', dest='keep_files', action='store_true',
                                   help='Keep files but remove game from Legendary database')
@@ -2896,8 +2936,8 @@ def main():
     list_files_parser.add_argument('--json', dest='json', action='store_true', help='Output in JSON format')
     list_files_parser.add_argument('--hashlist', dest='hashlist', action='store_true',
                                    help='Output file hash list in hashcheck/sha1sum -c compatible format')
-    list_files_parser.add_argument('--install-tag', dest='install_tag', action='store', metavar='<tag>',
-                                   type=str, help='Show only files with specified install tag')
+    list_files_parser.add_argument('--install-component', dest='install_component', action='store', metavar='<id>',
+                                   type=str, help='Show only files with specified optional download id')
 
     sync_saves_parser.add_argument('--skip-upload', dest='download_only', action='store_true',
                                    help='Only download new saves from cloud, don\'t upload')
@@ -3113,6 +3153,8 @@ def main():
             cli.crossover_setup(args)
         elif args.subparser_name == 'move':
             cli.move(args)
+        elif args.subparser_name == 'install-size':
+            cli.get_install_size(args)
     except KeyboardInterrupt:
         logger.info('Command was aborted via KeyboardInterrupt, cleaning up...')
 

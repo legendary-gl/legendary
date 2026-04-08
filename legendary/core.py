@@ -38,7 +38,6 @@ from legendary.utils.env import is_windows_mac_or_pyi
 from legendary.lfs.eos import EOSOverlayApp, query_registry_entries
 from legendary.utils.game_workarounds import is_opt_enabled, update_workarounds, get_exe_override
 from legendary.utils.savegame_helper import SaveGameHelper
-from legendary.utils.selective_dl import games as sdl_games
 from legendary.lfs.wine_helpers import read_registry, get_shell_folders, case_insensitive_path_search
 
 
@@ -226,6 +225,7 @@ class LegendaryCore:
                 try:
                     self.egs.resume_session(lock.data)
                     self.logged_in = True
+                    self.update_launcher_content()
                     return True
                 except InvalidCredentialsError as e:
                     self.log.warning(f'Resuming failed due to invalid credentials: {e!r}')
@@ -247,6 +247,7 @@ class LegendaryCore:
 
         lock.data = userdata
         self.logged_in = True
+        self.update_launcher_content()
         return True
 
     def login(self, force_refresh=False) -> bool:
@@ -285,21 +286,55 @@ class LegendaryCore:
             self.log.debug('No cached legendary config to apply.')
             return
 
-        if 'egl_config' in version_info:
-            self.egs.update_egs_params(version_info['egl_config'])
-            self._egl_version = version_info['egl_config'].get('version', self._egl_version)
-            for data_key in version_info['egl_config'].get('data_keys', []):
+        if egl_config := version_info.get('egl_config'):
+            self.egs.update_egs_params(egl_config)
+            self._egl_version = egl_config.get('version', self._egl_version)
+            for data_key in egl_config.get('data_keys', []):
                 if data_key not in self.egl.data_keys:
                     self.egl.data_keys.append(data_key)
         if game_overrides := version_info.get('game_overrides'):
             update_workarounds(game_overrides)
-            if sdl_config := game_overrides.get('sdl_config'):
-                # add placeholder for games to fetch from API that aren't hardcoded
-                for app_name in sdl_config.keys():
-                    if app_name not in sdl_games:
-                        sdl_games[app_name] = None
         if lgd_config := version_info.get('legendary_config'):
             self.webview_killswitch = lgd_config.get('webview_killswitch', False)
+
+    def update_launcher_content(self) -> None:
+        """Updates metadata we need from the EGL manifest"""
+        cached = self.lgd.get_cached_egl_content_version()
+        if cached['version'] and (datetime.now().timestamp() - cached['last_update']) < 24*3600:
+            self.log.debug('EGL content version cache is still fresh, not updating')
+            return
+
+        assets = self.egs.get_launcher_manifests()
+        asset = next((
+            asset for asset in assets['elements']
+            if asset['appName'] == 'EpicGamesLauncherContent'
+        ), None)
+
+        if not asset:
+            raise ValueError('"EpicGamesLauncherContent" asset not found in launcher manifests')
+
+        if asset['buildVersion'] == cached['version']:
+            self.log.debug('EGL content is up-to-date')
+            self.lgd.set_cached_egl_content_version(asset['buildVersion'])
+            return
+
+        manifest_urls, base_urls, manifest_hash = self._get_cdn_urls_for_asset(asset)
+        manifest_bytes = self._download_manifest(manifest_urls, manifest_hash)
+        manifest = self.load_manifest(manifest_bytes)
+
+        dlm = DLManager(self.lgd.egl_content_path, base_urls[0])
+        dlm.log.setLevel(logging.WARNING)
+
+        suffixes = [
+            # We need sdmeta files for selective downloads
+            'sdmeta'
+        ]
+
+        dlm.run_analysis(manifest=manifest, file_suffix_filter=suffixes)
+        dlm.start()
+        dlm.join()
+        self.log.info(f'EGL content updated from {cached["version"]} to {asset["buildVersion"]}')
+        self.lgd.set_cached_egl_content_version(asset['buildVersion'])
 
     def get_egl_version(self):
         return self._egl_version
@@ -313,31 +348,6 @@ class LegendaryCore:
             return None
 
         return update_info.get('game_wiki', {}).get(app_name, {}).get(sys_platform)
-
-    def get_sdl_data(self, app_name, platform='Windows'):
-        if platform not in ('Win32', 'Windows'):
-            app_name = f'{app_name}_{platform}'
-
-        if app_name not in sdl_games:
-            return None
-        # load hardcoded data as fallback
-        sdl_data = sdl_games[app_name]
-        # get cached data
-        cached = self.lgd.get_cached_sdl_data(app_name)
-        # check if newer version is available and/or download if necessary
-        version_info = self.lgd.get_cached_version()['data']
-        latest = version_info.get('game_overrides', {}).get('sdl_config', {}).get(app_name)
-        if (not cached and latest) or (cached and latest and latest > cached['version']):
-            try:
-                sdl_data = self.lgdapi.get_sdl_config(app_name)
-                self.log.debug(f'Downloaded SDL data for "{app_name}", version: {latest}')
-                self.lgd.set_cached_sdl_data(app_name, latest, sdl_data)
-            except Exception as e:
-                self.log.warning(f'Downloading SDL data failed with {e!r}')
-        elif cached:
-            sdl_data = cached['data']
-        # return data if available
-        return sdl_data
 
     def update_aliases(self, force=False):
         _aliases_enabled = not self.lgd.config.getboolean('Legendary', 'disable_auto_aliasing', fallback=False)
@@ -1252,10 +1262,14 @@ class LegendaryCore:
         if len(m_api_r['elements']) > 1:
             raise ValueError('Manifest response has more than one element!')
 
-        manifest_hash = m_api_r['elements'][0]['hash']
+        return self._get_cdn_urls_for_asset(m_api_r['elements'][0])
+
+    @staticmethod
+    def _get_cdn_urls_for_asset(asset):
+        manifest_hash = asset['hash']
         base_urls = []
         manifest_urls = []
-        for manifest in m_api_r['elements'][0]['manifests']:
+        for manifest in asset['manifests']:
             base_url = manifest['uri'].rpartition('/')[0]
             if base_url not in base_urls:
                 base_urls.append(base_url)
@@ -1276,6 +1290,9 @@ class LegendaryCore:
         if disable_https:
             manifest_urls = [url.replace('https://', 'http://') for url in manifest_urls]
 
+        return self._download_manifest(manifest_urls, manifest_hash), base_urls
+
+    def _download_manifest(self, manifest_urls: list[str], manifest_hash: str):
         for url in manifest_urls:
             self.log.debug(f'Trying to download manifest from "{url}"...')
             try:
@@ -1297,7 +1314,7 @@ class LegendaryCore:
         if sha1(manifest_bytes).hexdigest() != manifest_hash:
             raise ValueError('Manifest sha hash mismatch!')
 
-        return manifest_bytes, base_urls
+        return manifest_bytes
 
     def get_uri_manifest(self, uri):
         if uri.startswith('http'):
@@ -1326,12 +1343,13 @@ class LegendaryCore:
                          game_folder: str = '', override_manifest: str = '',
                          override_old_manifest: str = '', override_base_url: str = '',
                          platform: str = 'Windows', file_prefix_filter: list = None,
-                         file_exclude_filter: list = None, file_install_tag: list = None,
-                         dl_optimizations: bool = False, dl_timeout: int = 10,
-                         repair: bool = False, repair_use_latest: bool = False,
-                         disable_delta: bool = False, override_delta_manifest: str = '',
-                         egl_guid: str = '', preferred_cdn: str = None,
-                         disable_https: bool = False, bind_ip: str = None) -> (DLManager, AnalysisResult, ManifestMeta):
+                         file_suffix_filter: list = None, file_exclude_filter: list = None,
+                         file_install_tag: list = None, dl_optimizations: bool = False,
+                         dl_timeout: int = 10, repair: bool = False,
+                         repair_use_latest: bool = False, disable_delta: bool = False,
+                         override_delta_manifest: str = '', egl_guid: str = '',
+                         preferred_cdn: str = None, disable_https: bool = False,
+                         bind_ip: str = None, game_install_components: list = None) -> (DLManager, AnalysisResult, ManifestMeta):
         # load old manifest
         old_manifest = None
 
@@ -1502,6 +1520,7 @@ class LegendaryCore:
         anlres = dlm.run_analysis(manifest=new_manifest, old_manifest=old_manifest,
                                   patch=not disable_patching, resume=not force,
                                   file_prefix_filter=file_prefix_filter,
+                                  file_suffix_filter=file_suffix_filter,
                                   file_exclude_filter=file_exclude_filter,
                                   file_install_tag=file_install_tag,
                                   processing_optimization=process_opt)
@@ -1539,6 +1558,7 @@ class LegendaryCore:
                               can_run_offline=offline == 'true', requires_ot=ot == 'true',
                               is_dlc=base_game is not None, install_size=anlres.install_size,
                               egl_guid=egl_guid, install_tags=file_install_tag,
+                              install_components=game_install_components,
                               platform=platform, uninstaller=uninstaller)
 
         return dlm, anlres, igame
@@ -1852,9 +1872,10 @@ class LegendaryCore:
                                version=new_manifest.meta.build_version,
                                platform='Windows')
 
+        # TODO: Migrate this to components instead?
         # transfer install tag choices to config
-        if lgd_igame.install_tags:
-            self.lgd.config.set(app_name, 'install_tags', ','.join(lgd_igame.install_tags))
+        #if lgd_igame.install_tags:
+        #    self.lgd.config.set(app_name, 'install_tags', ','.join(lgd_igame.install_tags))
 
         # mark game as installed
         _ = self._install_game(lgd_igame)

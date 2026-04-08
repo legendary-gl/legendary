@@ -59,6 +59,7 @@ class EGLManifest:
         self.install_location = None
         self.install_size = None
         self.install_tags = None
+        self.install_components = None
         self.installation_guid = None
         self.launch_command = None
         self.executable = None
@@ -87,6 +88,7 @@ class EGLManifest:
         tmp.install_location = json.pop('InstallLocation', '')
         tmp.install_size = json.pop('InstallSize', 0)
         tmp.install_tags = json.pop('InstallTags', [])
+        tmp.install_components = json.pop('InstallComponents', [])
         tmp.installation_guid = json.pop('InstallationGuid', '')
         tmp.launch_command = json.pop('LaunchCommand', '')
         tmp.executable = json.pop('LaunchExecutable', '')
@@ -114,6 +116,7 @@ class EGLManifest:
         out['InstallLocation'] = self.install_location
         out['InstallSize'] = self.install_size
         out['InstallTags'] = self.install_tags
+        out['InstallComponents'] = self.install_components
         out['InstallationGuid'] = self.installation_guid
         out['LaunchCommand'] = self.launch_command
         out['LaunchExecutable'] = self.executable
@@ -140,6 +143,7 @@ class EGLManifest:
         tmp.install_location = igame.install_path
         tmp.install_size = igame.install_size
         tmp.install_tags = igame.install_tags
+        tmp.install_components = igame.install_components
         tmp.installation_guid = igame.egl_guid
         tmp.launch_command = igame.launch_parameters
         tmp.executable = igame.executable
@@ -159,4 +163,4 @@ class EGLManifest:
                              launch_parameters=self.launch_command, can_run_offline=self.can_run_offline,
                              requires_ot=self.ownership_token, is_dlc=False,
                              needs_verification=self.needs_validation, install_size=self.install_size,
-                             egl_guid=self.installation_guid, install_tags=self.install_tags)
+                             egl_guid=self.installation_guid, install_tags=self.install_tags, install_components=self.install_components)

@@ -46,6 +46,8 @@ class LGDLFS:
         # EOS Overlay install/update check info
         self._overlay_update_info = None
         self._overlay_install_info = None
+        # EGL content update check info
+        self._egl_content_update_info = None
         # Config with game specific settings (e.g. start parameters, env variables)
         self.config = LGDConf(comment_prefixes='/', allow_no_value=True)
 
@@ -401,19 +403,31 @@ class LGDLFS:
         json.dump(self._update_info, open(os.path.join(self.path, 'version.json'), 'w'),
                   indent=2, sort_keys=True)
 
-    def get_cached_sdl_data(self, app_name):
-        try:
-            return json.load(open(os.path.join(self.path, 'tmp', f'{app_name}.json')))
-        except Exception as e:
-            self.log.debug(f'Failed to load cached SDL data: {e!r}')
-            return None
+    @property
+    def egl_content_path(self) -> Path:
+        return Path(self.path) / 'egl_content'
 
-    def set_cached_sdl_data(self, app_name, sdl_version, sdl_data):
-        if not app_name or not sdl_data:
-            return
-        json.dump(dict(version=sdl_version, data=sdl_data),
-                  open(os.path.join(self.path, 'tmp', f'{app_name}.json'), 'w'),
-                  indent=2, sort_keys=True)
+    @property
+    def _egl_content_version_path(self) -> Path:
+        return Path(self.path) / 'egl_content_version.json'
+
+    def get_cached_egl_content_version(self):
+        if self._egl_content_update_info:
+            return self._egl_content_update_info
+
+        try:
+            self._egl_content_update_info = json.loads(self._egl_content_version_path.read_text())
+        except Exception as e:
+            self.log.debug(f'Failed to load EGL content version: {e!r}')
+            self._egl_content_update_info = dict(last_update=0, version=None)
+
+        return self._egl_content_update_info
+
+    def set_cached_egl_content_version(self, new_version: str):
+        self._egl_content_update_info = dict(version=new_version, last_update=time())
+        self._egl_content_version_path.write_text(
+            json.dumps(self._egl_content_update_info, indent=2, sort_keys=True)
+        )
 
     def get_cached_overlay_version(self):
         if self._overlay_update_info:

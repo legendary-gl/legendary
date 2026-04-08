@@ -81,8 +81,8 @@ class DLManager(Process):
 
     def run_analysis(self, manifest: Manifest, old_manifest: Manifest = None,
                      patch=True, resume=True, file_prefix_filter=None,
-                     file_exclude_filter=None, file_install_tag=None,
-                     processing_optimization=False) -> AnalysisResult:
+                     file_suffix_filter=None, file_exclude_filter=None,
+                     file_install_tag=None, processing_optimization=False) -> AnalysisResult:
         """
         Run analysis on manifest and old manifest (if not None) and return a result
         with a summary resources required in order to install the provided manifest.
@@ -92,6 +92,7 @@ class DLManager(Process):
         :param patch: Patch instead of redownloading the entire file
         :param resume: Continue based on resume file if it exists
         :param file_prefix_filter: Only download files that start with this prefix
+        :param file_suffix_filter: Only download files that end with this prefix
         :param file_exclude_filter: Exclude files with this prefix from download
         :param file_install_tag: Only install files with the specified tag
         :param processing_optimization: Attempt to optimize processing order and RAM usage
@@ -187,19 +188,24 @@ class DLManager(Process):
             mc.changed -= files_to_skip
             mc.unchanged |= files_to_skip
 
-        if file_prefix_filter:
-            if isinstance(file_prefix_filter, str):
-                file_prefix_filter = [file_prefix_filter]
+        if file_prefix_filter or file_suffix_filter:
+            file_prefix_filter = file_prefix_filter or []
+            file_suffix_filter = file_suffix_filter or []
 
             file_prefix_filter = [f.lower() for f in file_prefix_filter]
-            files_to_skip = set(i.filename for i in manifest.file_manifest_list.elements if not
-                                any(i.filename.lower().startswith(pfx) for pfx in file_prefix_filter))
+            file_suffix_filter = [f.lower() for f in file_suffix_filter]
+            files_to_skip = set(
+                i.filename
+                for i in manifest.file_manifest_list.elements
+                if not any(i.filename.lower().startswith(pfx) for pfx in file_prefix_filter)
+                and not any(i.filename.lower().endswith(sfx) for sfx in file_suffix_filter)
+            )
             self.log.info(f'Found {len(files_to_skip)} files to skip based on include prefix(es)')
             mc.added -= files_to_skip
             mc.changed -= files_to_skip
             mc.unchanged |= files_to_skip
 
-        if file_prefix_filter or file_exclude_filter or file_install_tag:
+        if file_prefix_filter or file_suffix_filter or file_exclude_filter or file_install_tag:
             self.log.info(f'Remaining files after filtering: {len(mc.added) + len(mc.changed)}')
             # correct install size after filtering
             analysis_res.install_size = sum(fm.file_size for fm in manifest.file_manifest_list.elements
