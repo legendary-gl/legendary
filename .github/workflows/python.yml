@@ -83,13 +83,9 @@ jobs:
     - run: mkdir -p build dist
 
     - name: Dependencies
-      run: uv export --format requirements.txt --no-install-local | uv pip install --requirement - --target build
+      run: uv export --format requirements.txt --no-editable | uv pip install --requirement - --target build
 
     - run: cp zipapp_main.py build/__main__.py
-
-    - run: |
-        uv build
-        uv pip install dist/legendary_gl-*.tar.gz --target build
 
     - name: Build
       run: python -m zipapp
