@@ -1,0 +1,47 @@
+[build-system]
+requires = ["uv_build>=0.11.4,<0.12"]
+build-backend = "uv_build"
+
+[project]
+name = "legendary-gl"
+version = "0.20.35"
+dependencies = [
+    "requests",
+    "filelock",
+    "pycryptodomex",
+]
+requires-python = ">= 3.9"
+authors = [
+    {name = "Rodney", email = "rodney@rodney.io"}
+]
+description = "Free and open-source replacement for the Epic Games Launcher application"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.9",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Games/Entertainment",
+    "Development Status :: 4 - Beta",
+]
+
+[project.optional-dependencies]
+webview = ["pywebview>=3.4"]
+webview_gtk = ["pywebview>=3.4", "PyGObject"]
+
+[project.scripts]
+legendary = "legendary.cli:main"
+
+[project.urls]
+source = "https://github.com/derrod/legendary"
+
+[tool.uv]
+required-version = ">=0.11.0"
+
+[tool.uv.build-backend]
+module-name = "legendary"
+module-root = ""
