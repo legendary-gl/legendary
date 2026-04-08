@@ -32,6 +32,7 @@ classifiers = [
 [project.optional-dependencies]
 webview = ["pywebview>=3.4"]
 webview_gtk = ["pywebview>=3.4", "PyGObject"]
+pyinstaller_build = ["pyinstaller"]
 
 [project.scripts]
 legendary = "legendary.cli:main"

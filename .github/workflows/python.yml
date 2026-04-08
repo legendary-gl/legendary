@@ -31,15 +31,12 @@ jobs:
       with:
         enable-cache: true
 
-    - name: Dependencies
-      run: uv sync --no-install-local
+    - name: Dependencies and build tools
+      run: uv sync --extra pyinstaller_build --no-install-local
 
     - name: Optional dependencies (WebView)
-      run: uv sync --extra webview --no-install-local
+      run: uv sync --extra webview --no-install-local --inexact
       if: runner.os != 'macOS'
-
-    - name: Build tools
-      run: uv add --dev pyinstaller
 
     - name: Set strip option on non-Windows
       id: strip
