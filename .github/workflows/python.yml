@@ -16,6 +16,8 @@ jobs:
           'macos-15-intel', 'macos-15'
         ]
       fail-fast: false
+    env:
+      UV_SYSTEM_PYTHON: 1
 
     steps:
     - uses: actions/checkout@v6
@@ -30,10 +32,10 @@ jobs:
         enable-cache: true
 
     - name: Dependencies
-      run: uv sync
+      run: uv sync --no-install-local
 
     - name: Optional dependencies (WebView)
-      run: uv sync --extra webview
+      run: uv sync --extra webview --no-install-local
       if: runner.os != 'macOS'
 
     - name: Build tools
@@ -84,13 +86,13 @@ jobs:
     - run: mkdir -p build dist
 
     - name: Dependencies
-      run: uv export --format requirements.txt | uv pip install --requirement - --target build
+      run: uv export --format requirements.txt --no-install-local | uv pip install --requirement - --target build
+
+    - run: cp zipapp_main.py build/__main__.py
 
     - run: |
         uv build
         uv pip install dist/legendary_gl-*.tar.gz --target build
-
-    - run: cp zipapp_main.py build/__main__.py
 
     - name: Build
       run: python -m zipapp
