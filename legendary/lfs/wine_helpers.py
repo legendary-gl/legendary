@@ -25,6 +25,9 @@ def case_insensitive_file_search(path: str) -> str:
     Similar to case_insensitive_path_search: Finds a file case-insensitively
     Note that this *does* work on Windows, although it's rather pointless
     """
+    if os.path.exists(path):
+        return path
+
     path_parts = os.path.normpath(path).split(os.sep)
     # If path_parts[0] is empty, we're on Unix and thus start searching at /
     if not path_parts[0]:
