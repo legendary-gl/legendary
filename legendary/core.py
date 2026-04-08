@@ -365,13 +365,20 @@ class LegendaryCore:
                 self.lgd.assets = assets
 
         return self.lgd.assets[platform]
+    
+    def get_library_items(self, include_metadata=True, force_refresh=False):
+        if force_refresh or not self.lgd.library_items:
+            lib = self.egs.get_library_items(include_metadata)
+            if self.lgd.library_items != lib:
+                self.lgd.library_items = lib
+        return self.lgd.library_items
 
-    def get_asset(self, app_name, platform='Windows', update=False) -> GameAsset:
+    def get_asset(self, app_name, platform='Windows', update=False, namespace=None) -> GameAsset:
         if update or platform not in self.lgd.assets:
             self.get_assets(update_assets=True, platform=platform)
 
         try:
-            return next(i for i in self.lgd.assets[platform] if i.app_name == app_name)
+            return next(i for i in self.lgd.assets[platform] if i.app_name == app_name and (namespace is None or i.namespace == namespace))
         except StopIteration:
             raise ValueError
 
@@ -412,6 +419,8 @@ class LegendaryCore:
         for _platform in platforms:
             self.get_assets(update_assets=update_assets, platform=_platform)
 
+        library_items = self.get_library_items(force_refresh=update_assets)
+
         if not self.lgd.assets:
             return _ret, _dlc
 
@@ -419,31 +428,35 @@ class LegendaryCore:
         for _platform, _assets in self.lgd.assets.items():
             for _asset in _assets:
                 if _asset.app_name in assets:
-                    assets[_asset.app_name][_platform] = _asset
+                    assets[_asset.app_name][_platform].append(_asset)
                 else:
-                    assets[_asset.app_name] = {_platform: _asset}
+                    assets[_asset.app_name] = {_platform: [_asset]}
 
         fetch_list = []
         games = {}
+        sidecars = {}
 
         for app_name, app_assets in sorted(assets.items()):
-            if skip_ue and any(v.namespace == 'ue' for v in app_assets.values()):
+            if skip_ue and any(v.namespace == 'ue' for _assets in app_assets.values() for v in _assets):
                 continue
 
             game = self.lgd.get_game_meta(app_name)
             asset_updated = sidecar_updated = False
             if game:
-                asset_updated = any(game.app_version(_p) != app_assets[_p].build_version for _p in app_assets.keys())
+                asset_updated = any(game.app_version(_p, _a.namespace) != _a.build_version for _p in app_assets.keys() for _a in app_assets[_p])
                 # assuming sidecar data is the same for all platforms, just check the baseline (Windows) for updates.
-                sidecar_updated = (app_assets['Windows'].sidecar_rev > 0 and
-                                   (not game.sidecar or game.sidecar.rev != app_assets['Windows'].sidecar_rev))
+                sidecar_updated = any(_a.sidecar_rev > 0 and
+                                      (not game.sidecars or _a.namespace not in game.sidecars
+                                       or game.sidecars[_a.namespace].rev != _a.sidecar_rev)
+                                       for _a in app_assets['Windows'])
                 games[app_name] = game
 
             if update_assets and (not game or force_refresh or (game and (asset_updated or sidecar_updated))):
                 self.log.debug(f'Scheduling metadata update for {app_name}')
                 # namespace/catalog item are the same for all platforms, so we can just use the first one
-                _ga = next(iter(app_assets.values()))
-                fetch_list.append((app_name, _ga.namespace, _ga.catalog_item_id, sidecar_updated))
+                _gas = next(iter(app_assets.values()))
+                for _ga in _gas:
+                    fetch_list.append((app_name, _ga.namespace, _ga.catalog_item_id, sidecar_updated))
                 meta_updated = True
 
         def fetch_game_meta(args):
@@ -453,7 +466,6 @@ class LegendaryCore:
                 self.log.warning(f'App {app_name} does not have any metadata!')
                 eg_meta = dict(title='Unknown')
 
-            sidecar = None
             if update_sidecar:
                 self.log.debug(f'Updating sidecar information for {app_name}...')
                 manifest_api_response = self.egs.get_game_manifest(namespace, catalog_item_id, app_name)
@@ -462,9 +474,13 @@ class LegendaryCore:
                 if 'sidecar' in manifest_info:
                     sidecar_json = json.loads(manifest_info['sidecar']['config'])
                     sidecar = Sidecar(config=sidecar_json, rev=manifest_info['sidecar']['rvn'])
+                    if not app_name in sidecars:
+                        sidecars[app_name] = {namespace: sidecar}
+                    else:
+                        sidecars[app_name].update({namespace:sidecar})
 
             game = Game(app_name=app_name, app_title=eg_meta['title'], metadata=eg_meta, asset_infos=assets[app_name],
-                        sidecar=sidecar)
+                        sidecars=sidecars.get(app_name))
             self.lgd.set_game_meta(game.app_name, game)
             games[app_name] = game
             try:
@@ -482,7 +498,7 @@ class LegendaryCore:
                     executor.map(fetch_game_meta, fetch_list, timeout=60.0)
 
         for app_name, app_assets in sorted(assets.items()):
-            if skip_ue and any(v.namespace == 'ue' for v in app_assets.values()):
+            if skip_ue and any(v.namespace == 'ue' for a in app_assets.values() for v in a):
                 continue
 
             game = games.get(app_name)
@@ -490,14 +506,24 @@ class LegendaryCore:
             if not game or app_name in still_needs_update:
                 if use_threads:
                     self.log.warning(f'Fetching metadata for {app_name} failed, retrying')
-                _ga = next(iter(app_assets.values()))
-                fetch_game_meta((app_name, _ga.namespace, _ga.catalog_item_id, True))
+                _gas = next(iter(app_assets.values()))
+                for _ga in _gas:
+                    fetch_game_meta((app_name, _ga.namespace, _ga.catalog_item_id, True))
                 game = games[app_name]
 
             if game.is_dlc and platform in app_assets:
                 _dlc[game.metadata['mainGameItem']['id']].append(game)
             elif not any(i['path'] == 'mods' for i in game.metadata.get('categories', [])) and platform in app_assets:
                 _ret.append(game)
+
+        # append info about each library entry per namespace
+        for record in library_items:
+            record_type = record.get("recordType")
+            if record_type and (record_type.lower() != "application"):
+                continue
+            if game := games.get(record["appName"]):
+                game.namespaces.update({record["namespace"]: record})
+                self.lgd.set_game_meta(game.app_name, game)
 
         self.update_aliases(force=meta_updated)
         if meta_updated:
@@ -541,14 +567,14 @@ class LegendaryCore:
         # broken old app name that we should always ignore
         ignore |= {'1'}
 
-        for libitem in self.egs.get_library_items():
+        for libitem in self.get_library_items():
             if libitem['namespace'] == 'ue' and skip_ue:
                 continue
             if 'appName' not in libitem:
                 continue
             if libitem['appName'] in ignore:
                 continue
-            if libitem['sandboxType'] == 'PRIVATE':
+            if libitem['sandboxType'].lower() == 'private':
                 continue
 
             game = self.lgd.get_game_meta(libitem['appName'])
@@ -777,11 +803,13 @@ class LegendaryCore:
             '-AUTH_TYPE=exchangecode',
             f'-epicapp={app_name}',
             '-epicenv=Prod'])
+        
+        namespace = install.namespace or game.namespace
 
         if install.requires_ot and not offline:
             self.log.info('Getting ownership token.')
-            ovt = self.egs.get_ownership_token(game.namespace, game.catalog_item_id)
-            ovt_path = os.path.join(self.lgd.get_tmp_path(), f'{game.namespace}{game.catalog_item_id}.ovt')
+            ovt = self.egs.get_ownership_token(namespace, game.catalog_item_id)
+            ovt_path = os.path.join(self.lgd.get_tmp_path(), f'{namespace}{game.catalog_item_id}.ovt')
             with open(ovt_path, 'wb') as f:
                 f.write(ovt)
             params.egl_parameters.append(f'-epicovt={ovt_path}')
@@ -795,10 +823,10 @@ class LegendaryCore:
             f'-epicusername={user_name}',
             f'-epicuserid={account_id}',
             f'-epiclocale={language_code}',
-            f'-epicsandboxid={game.namespace}'
+            f'-epicsandboxid={namespace}'
         ])
 
-        if sidecar := game.sidecar:
+        if sidecar := game.sidecars and game.sidecars.get(namespace):
             if deployment_id := sidecar.config.get('deploymentId', None):
                 params.egl_parameters.append(f'-epicdeploymentid={deployment_id}')
 
@@ -1244,8 +1272,9 @@ class LegendaryCore:
         old_bytes = self.lgd.load_manifest(app_name, igame.version, igame.platform)
         return old_bytes, igame.base_urls
 
-    def get_cdn_urls(self, game, platform='Windows'):
-        m_api_r = self.egs.get_game_manifest(game.namespace, game.catalog_item_id,
+    def get_cdn_urls(self, game, platform='Windows', namespace=None):
+        ns = namespace or game.namespace
+        m_api_r = self.egs.get_game_manifest(ns, game.catalog_item_id,
                                              game.app_name, platform)
 
         # never seen this outside the launcher itself, but if it happens: PANIC!
@@ -1268,8 +1297,8 @@ class LegendaryCore:
 
         return manifest_urls, base_urls, manifest_hash
 
-    def get_cdn_manifest(self, game, platform='Windows', disable_https=False):
-        manifest_urls, base_urls, manifest_hash = self.get_cdn_urls(game, platform)
+    def get_cdn_manifest(self, game, platform='Windows', namespace=None, disable_https=False):
+        manifest_urls, base_urls, manifest_hash = self.get_cdn_urls(game, platform, namespace)
         if not manifest_urls:
             raise ValueError('No manifest URLs returned by API')
 
@@ -1331,7 +1360,8 @@ class LegendaryCore:
                          repair: bool = False, repair_use_latest: bool = False,
                          disable_delta: bool = False, override_delta_manifest: str = '',
                          egl_guid: str = '', preferred_cdn: str = None,
-                         disable_https: bool = False, bind_ip: str = None) -> (DLManager, AnalysisResult, ManifestMeta):
+                         disable_https: bool = False, bind_ip: str = None,
+                         namespace: str = None) -> (DLManager, AnalysisResult, ManifestMeta):
         # load old manifest
         old_manifest = None
 
@@ -1363,7 +1393,7 @@ class LegendaryCore:
             if _base_urls:
                 base_urls = _base_urls
         else:
-            new_manifest_data, base_urls = self.get_cdn_manifest(game, platform, disable_https=disable_https)
+            new_manifest_data, base_urls = self.get_cdn_manifest(game, platform, namespace=namespace, disable_https=disable_https)
             # overwrite base urls in metadata with current ones to avoid using old/dead CDNs
             game.base_urls = base_urls
             # save base urls to game metadata
@@ -1539,7 +1569,8 @@ class LegendaryCore:
                               can_run_offline=offline == 'true', requires_ot=ot == 'true',
                               is_dlc=base_game is not None, install_size=anlres.install_size,
                               egl_guid=egl_guid, install_tags=file_install_tag,
-                              platform=platform, uninstaller=uninstaller)
+                              platform=platform, uninstaller=uninstaller,
+                              namespace=namespace)
 
         return dlm, anlres, igame
 
@@ -1888,10 +1919,10 @@ class LegendaryCore:
         # copy manifest and create mancpn file in .egstore folder
         with open(os.path.join(egstore_folder, f'{egl_game.installation_guid}.manifest', ), 'wb') as mf:
             mf.write(manifest_data)
-
+        ns = lgd_igame.namespace or lgd_game.namespace
         mancpn = dict(FormatVersion=0, AppName=app_name,
                       CatalogItemId=lgd_game.catalog_item_id,
-                      CatalogNamespace=lgd_game.namespace)
+                      CatalogNamespace=ns)
         with open(os.path.join(egstore_folder, f'{egl_game.installation_guid}.mancpn', ), 'w') as mcpnf:
             json.dump(mancpn, mcpnf, indent=4, sort_keys=True)
 
