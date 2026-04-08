@@ -1361,7 +1361,6 @@ class LegendaryCore:
         if override_manifest:
             self.log.info(f'Overriding manifest with "{override_manifest}"')
             new_manifest_data, _base_urls = self.get_uri_manifest(override_manifest)
-            is_preloaded = False
             # FIXME: Populate manifest secrets
             manifest_secrets = dict()
             # if override manifest has a base URL use that instead
@@ -1772,7 +1771,7 @@ class LegendaryCore:
         manifest_secrets = dict()
         if not manifest_data:
             self.log.info(f'Downloading latest manifest for "{game.app_name}"')
-            manifest_data, base_urls, is_preloaded, manifest_secrets = self.get_cdn_manifest(game)
+            manifest_data, base_urls, _, manifest_secrets = self.get_cdn_manifest(game)
             if not game.base_urls:
                 game.base_urls = base_urls
                 self.lgd.set_game_meta(game.app_name, game)
