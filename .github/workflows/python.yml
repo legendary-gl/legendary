@@ -11,23 +11,26 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ['ubuntu-24.04', 'windows-latest', 'macos-13']
+        os: [
+          'windows-2025', 'windows-11-arm',
+          'macos-15-intel', 'macos-15'
+        ]
       fail-fast: false
-      max-parallel: 3
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
-    - uses: actions/setup-python@v4
+    - uses: actions/setup-python@v6
       with:
-        python-version: '3.9'
+        python-version: '3.13'
 
-    - name: Legendary dependencies and build tools
+    - name: Dependencies
+      run: pip3 install --requirement requirements.txt
+
+    - name: Build tools
       run: pip3 install --upgrade
         setuptools
         pyinstaller
-        requests
-        filelock
 
     - name: Optional dependencies (WebView)
       run: pip3 install --upgrade pywebview
@@ -35,7 +38,7 @@ jobs:
 
     - name: Set strip option on non-Windows
       id: strip
-      run: echo ::set-output name=option::--strip
+      run: echo "option=--strip" >> $GITHUB_OUTPUT
       if: runner.os != 'Windows'
 
     - name: Build
@@ -49,40 +52,43 @@ jobs:
       env:
         PYTHONOPTIMIZE: 1
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
-        name: ${{ runner.os }}-package
+        name: ${{ runner.os }}-${{ runner.arch }}-package
         path: legendary/dist/*
 
-  deb:
-    runs-on: ubuntu-22.04
+  zipapp:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [
+          'ubuntu-24.04', 'ubuntu-24.04-arm'
+        ]
+      fail-fast: false
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.13'
+
+    - run: mkdir -p build dist
 
     - name: Dependencies
-      run: |
-        sudo apt install ruby
-        sudo gem install fpm
+      run: pip3 install --requirement requirements.txt --target build
+
+    - run: cp -r legendary build
+    - run: cp zipapp_main.py build/__main__.py
 
     - name: Build
-      run: fpm
-        --input-type python
-        --output-type deb
-        --python-package-name-prefix python3
-        --deb-suggests python3-webview
-        --maintainer "Rodney <rodney@rodney.io>"
-        --category python
-        --depends "python3 >= 3.9"
-        setup.py
+      run: python -m zipapp
+        --output dist/legendary
+        --python "/usr/bin/env python3"
+        --compress
+        build
 
-    - name: Os version
-      id: os_version
-      run: |
-        source /etc/os-release
-        echo ::set-output name=version::$NAME-$VERSION_ID
-
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
-        name: ${{ steps.os_version.outputs.version }}-deb-package
-        path: ./*.deb
+        name: ${{ runner.os }}-${{ runner.arch }}-package
+        path: dist/*
