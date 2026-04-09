@@ -39,9 +39,24 @@ legendary = "legendary.cli:main"
 [project.urls]
 source = "https://github.com/derrod/legendary"
 
+[dependency-groups]
+dev = [
+    "ruff>=0.15.10",
+]
+
 [tool.uv]
 required-version = ">=0.11.0"
 
 [tool.uv.build-backend]
 module-name = "legendary"
 module-root = ""
+
+[tool.ruff]
+extend-exclude = ["zipapp_main.py"]
+
+[tool.ruff.lint]
+select = [ "E",  "F",  "UP",  "B",  "SIM",  "I" ]
+ignore = [ "E501", "UP015", "SIM102", "SIM115", "B905", "UP045" ]
+
+[tool.ruff.format]
+quote-style = "single"
