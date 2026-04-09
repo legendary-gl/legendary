@@ -39,7 +39,7 @@ it has to be run from a terminal (e.g. PowerShell)
 - PyPI packages:
   + `requests`
   + (optional) `pywebview` for webview-based login
-  + (optional) `setuptools` and `wheel` for setup/building
+  + (optional) `uv` for setup/building
 
 **Note:** Running Windows applications on Linux or macOS requires [Wine](https://www.winehq.org/).
 
@@ -79,6 +79,8 @@ To prevent problems with permissions during installation, please upgrade your `p
 
 Legendary is available on [PyPI](https://pypi.org/project/legendary-gl/), to install simply run:
 
+Note: `uv pip` may be used as a substitute to `pip` in the below commands
+
 ```bash
 pip install legendary-gl
 ```
@@ -101,18 +103,18 @@ but may require manually installing dependencies needed to build `PyGObject`.
 
 #### Manually from the repo
 
-- Install python3.9, setuptools, wheel, and requests
+- Install uv
 - Clone the git repository and cd into it
-- Run `pip install .`
+- Run `uv sync --no-editable`
 
 #### Ubuntu 20.04 example
 
-Ubuntu 20.04's standard repositories include everything needed to install legendary:
+`uv` has various methods of installation. See <https://docs.astral.sh/uv/getting-started/installation/> and choose one.
+
 ````bash
-sudo apt install python3 python3-requests python3-setuptools-git
 git clone https://github.com/derrod/legendary.git
 cd legendary
-pip install .
+uv sync --no-editable
 ````
 
 If the `legendary` executable is not available after installation, you may need to configure your `PATH` correctly. You can do this by running the command: 
@@ -123,9 +125,9 @@ echo 'export PATH=$PATH:~/.local/bin' >> ~/.profile && source ~/.profile
 
 ### Directly from the repo (for dev/testing)
 
-- Install python3.9 and requests (optionally in a venv)
+- Install uv
 - cd into the repository
-- Run `pip install -e .`
+- Run `uv sync`
 
 This installs `legendary` in "editable" mode - any changes to the source code will take effect next time the `legendary` executable runs.
 
