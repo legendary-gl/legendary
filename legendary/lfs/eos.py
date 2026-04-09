@@ -1,10 +1,19 @@
-import os
 import logging
+import os
 
 from legendary.models.game import Game
 
 if os.name == 'nt':
-    from legendary.lfs.windows_helpers import *
+    from legendary.lfs.windows_helpers import (
+        HKEY_CURRENT_USER,
+        HKEY_LOCAL_MACHINE,
+        TYPE_DWORD,
+        TYPE_STRING,
+        list_registry_values,
+        query_registry_value,
+        remove_registry_value,
+        set_registry_value,
+    )
 
 logger = logging.getLogger('EOSUtils')
 # Dummy Game objects to use with Core methods that expect them
@@ -98,7 +107,6 @@ def add_registry_entries(overlay_path, prefix=None):
             overlay_path = f'Z:{overlay_path}'
 
         overlay_line = f'"{EOS_OVERLAY_VALUE}"="{overlay_path}"\n'
-        overlay_idx = None
         section_idx = None
 
         for idx, line in enumerate(reg_lines):

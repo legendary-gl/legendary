@@ -1,46 +1,74 @@
-# coding: utf-8
 
+import contextlib
 import json
+import logging
+import os
 import shlex
 import shutil
-
 from base64 import b64decode
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timezone
+from datetime import datetime, timezone
 from hashlib import sha1
 from locale import getdefaultlocale
 from multiprocessing import Queue
 from platform import system
-from requests import session
-from requests.exceptions import HTTPError, ConnectionError
 from sys import platform as sys_platform
+from urllib.parse import parse_qsl, urlencode, urlparse
 from uuid import uuid4
-from urllib.parse import urlencode, parse_qsl, urlparse
+
+from requests import session
+from requests.exceptions import ConnectionError, HTTPError
 
 from legendary import __version__
 from legendary.api.egs import EPCAPI
 from legendary.api.lgd import LGDAPI
 from legendary.downloader.mp.manager import DLManager
+from legendary.lfs.crossover import (
+    mac_find_crossover_apps,
+    mac_get_bottle_path,
+    mac_get_crossover_version,
+    mac_is_valid_bottle,
+)
 from legendary.lfs.egl import EPCLFS
+from legendary.lfs.eos import EOSOverlayApp, query_registry_entries
 from legendary.lfs.lgndry import LGDLFS
-from legendary.lfs.utils import clean_filename, delete_folder, delete_filelist, get_dir_size
+from legendary.lfs.utils import (
+    clean_filename,
+    delete_filelist,
+    delete_folder,
+    get_dir_size,
+)
+from legendary.lfs.wine_helpers import (
+    case_insensitive_path_search,
+    get_shell_folders,
+    read_registry,
+)
+from legendary.models.chunk import Chunk
 from legendary.models.downloading import AnalysisResult, ConditionCheckResult
 from legendary.models.egl import EGLManifest
-from legendary.models.exceptions import *
-from legendary.models.game import *
+from legendary.models.exceptions import InvalidCredentialsError
+from legendary.models.game import (
+    Achievements,
+    Game,
+    GameAsset,
+    InstalledGame,
+    LaunchParameters,
+    SaveGameFile,
+    SaveGameStatus,
+    Sidecar,
+)
 from legendary.models.json_manifest import JSONManifest
 from legendary.models.manifest import Manifest, ManifestMeta
-from legendary.models.chunk import Chunk
-from legendary.lfs.crossover import *
 from legendary.utils.egl_crypt import decrypt_epic_data
 from legendary.utils.env import is_windows_mac_or_pyi
-from legendary.lfs.eos import EOSOverlayApp, query_registry_entries
-from legendary.utils.game_workarounds import is_opt_enabled, update_workarounds, get_exe_override
+from legendary.utils.game_workarounds import (
+    get_exe_override,
+    is_opt_enabled,
+    update_workarounds,
+)
 from legendary.utils.savegame_helper import SaveGameHelper
 from legendary.utils.selective_dl import games as sdl_games
-from legendary.lfs.wine_helpers import read_registry, get_shell_folders, case_insensitive_path_search
-
 
 # ToDo: instead of true/false return values for success/failure actually raise an exception that the CLI/GUI
 #  can handle to give the user more details. (Not required yet since there's no GUI so log output is fine)
@@ -295,7 +323,7 @@ class LegendaryCore:
             update_workarounds(game_overrides)
             if sdl_config := game_overrides.get('sdl_config'):
                 # add placeholder for games to fetch from API that aren't hardcoded
-                for app_name in sdl_config.keys():
+                for app_name in sdl_config:
                     if app_name not in sdl_games:
                         sdl_games[app_name] = None
         if lgd_config := version_info.get('legendary_config'):
@@ -318,7 +346,7 @@ class LegendaryCore:
         if not (achievements := self.lgd.achievements):
             achievements = {}
 
-        if not achievements or not achievements.get(namespace, None) or update:
+        if not achievements or not achievements.get(namespace) or update:
             response = self.egs.get_game_achievements_user(namespace)
             records = response['data']['PlayerAchievement']['playerAchievementGameRecordsBySandbox']['records']
             achievements[namespace] = None
@@ -433,7 +461,7 @@ class LegendaryCore:
         if _aliases_enabled and (force or not self.lgd.aliases):
             self.lgd.generate_aliases()
 
-    def get_assets(self, update_assets=False, platform='Windows') -> List[GameAsset]:
+    def get_assets(self, update_assets=False, platform='Windows') -> list[GameAsset]:
         # do not save and always fetch list when platform is overridden
         if not self.lgd.assets or update_assets or platform not in self.lgd.assets:
             # if not logged in, return empty list
@@ -466,8 +494,8 @@ class LegendaryCore:
 
         try:
             return next(i for i in self.lgd.assets[platform] if i.app_name == app_name)
-        except StopIteration:
-            raise ValueError
+        except StopIteration as e:
+            raise ValueError from e
 
     def asset_valid(self, app_name) -> bool:
         # EGL sync is only supported for Windows titles so this is fine
@@ -489,11 +517,11 @@ class LegendaryCore:
             self.get_game_list(True, platform=platform)
         return self.lgd.get_game_meta(app_name)
 
-    def get_game_list(self, update_assets=True, platform='Windows') -> List[Game]:
+    def get_game_list(self, update_assets=True, platform='Windows') -> list[Game]:
         return self.get_game_and_dlc_list(update_assets=update_assets, platform=platform)[0]
 
     def get_game_and_dlc_list(self, update_assets=True, platform='Windows',
-                              force_refresh=False, skip_ue=True) -> (List[Game], Dict[str, List[Game]]):
+                              force_refresh=False, skip_ue=True) -> tuple[list[Game], dict[str, list[Game]]]:
         _ret = []
         _dlc = defaultdict(list)
         meta_updated = False
@@ -527,7 +555,7 @@ class LegendaryCore:
             game = self.lgd.get_game_meta(app_name)
             asset_updated = sidecar_updated = achievements_updated = False
             if game:
-                asset_updated = any(game.app_version(_p) != app_assets[_p].build_version for _p in app_assets.keys())
+                asset_updated = any(game.app_version(_p) != app_assets[_p].build_version for _p in app_assets)
                 # assuming sidecar data is the same for all platforms, just check the baseline (Windows) for updates.
                 sidecar_updated = (app_assets['Windows'].sidecar_rev > 0 and
                                    (not game.sidecar or game.sidecar.rev != app_assets['Windows'].sidecar_rev))
@@ -566,10 +594,8 @@ class LegendaryCore:
                         sidecar=sidecar, achievements=achievements)
             self.lgd.set_game_meta(game.app_name, game)
             games[app_name] = game
-            try:
+            with contextlib.suppress(KeyError):
                 still_needs_update.remove(app_name)
-            except KeyError:
-                pass
 
         # setup and teardown of thread pool takes some time, so only do it when it makes sense.
         still_needs_update = {e[0] for e in fetch_list}
@@ -624,7 +650,7 @@ class LegendaryCore:
             self.lgd.delete_game_meta(app_name)
 
     def get_non_asset_library_items(self, force_refresh=False,
-                                    skip_ue=True) -> (List[Game], Dict[str, List[Game]]):
+                                    skip_ue=True) -> tuple[list[Game], dict[str, list[Game]]]:
         """
         Gets a list of Games without assets for installation, for instance Games delivered via
         third-party stores that do not have assets for installation
@@ -680,20 +706,20 @@ class LegendaryCore:
     def get_installed_platforms(self):
         return {i.platform for i in self._get_installed_list(False)}
 
-    def get_installed_list(self, include_dlc=False) -> List[InstalledGame]:
+    def get_installed_list(self, include_dlc=False) -> list[InstalledGame]:
         if self.egl_sync_enabled:
             self.log.debug('Running EGL sync...')
             self.egl_sync()
 
         return self._get_installed_list(include_dlc)
 
-    def _get_installed_list(self, include_dlc=False) -> List[InstalledGame]:
+    def _get_installed_list(self, include_dlc=False) -> list[InstalledGame]:
         if include_dlc:
             return self.lgd.get_installed_list()
         else:
             return [g for g in self.lgd.get_installed_list() if not g.is_dlc]
 
-    def get_installed_dlc_list(self) -> List[InstalledGame]:
+    def get_installed_dlc_list(self) -> list[InstalledGame]:
         return [g for g in self.lgd.get_installed_list() if g.is_dlc]
 
     def get_installed_game(self, app_name, skip_sync=False) -> InstalledGame:
@@ -951,7 +977,7 @@ class LegendaryCore:
         return f'uplay://launch/{game_id}?{urlencode(parameters)}'
 
     def get_save_games(self, app_name: str = ''):
-        savegames = self.egs.get_user_cloud_saves(app_name, manifests=not not app_name)
+        savegames = self.egs.get_user_cloud_saves(app_name, manifests=bool(app_name))
         _saves = []
         for fname, f in savegames['files'].items():
             if '.manifest' not in fname:
@@ -1086,7 +1112,7 @@ class LegendaryCore:
 
         return absolute_path
 
-    def check_savegame_state(self, path: str, save: SaveGameFile) -> (SaveGameStatus, (datetime, datetime)):
+    def check_savegame_state(self, path: str, save: SaveGameFile) -> tuple[SaveGameStatus, tuple[datetime | None, datetime | None]]:
         latest = 0
         for _dir, _, _files in os.walk(path):
             for _file in _files:
@@ -1227,8 +1253,8 @@ class LegendaryCore:
                                    f'"legendary clean-saves {app_name}" and try again.')
                     return
                 else:
-                    self.log.error(f'No chunks were available, skipping. You can run "legendary clean-saves" '
-                                   f'to remove this broken save from your account.')
+                    self.log.error('No chunks were available, skipping. You can run "legendary clean-saves" '
+                                   'to remove this broken save from your account.')
                     continue
 
             for fm in m.file_manifest_list.elements:
@@ -1303,14 +1329,14 @@ class LegendaryCore:
                 deletion_list.append(fname)
                 continue
             elif 0 < missing_chunks < total_chunks:
-                self.log.error(f'Some chunk(s) missing, optionally run "legendary download-saves" to obtain a backup '
-                               f'of the corrupted save, then re-run this command with "--delete-incomplete" to remove '
-                               f'it from the cloud save service.')
+                self.log.error('Some chunk(s) missing, optionally run "legendary download-saves" to obtain a backup '
+                               'of the corrupted save, then re-run this command with "--delete-incomplete" to remove '
+                               'it from the cloud save service.')
 
             used_chunks |= chunk_fnames
 
         # check for orphaned chunks (not used in any manifests)
-        for fname, f in files.items():
+        for fname in files:
             if fname in used_chunks or '.manifest' in fname:
                 continue
             # skip chunks where orphan status could not be reliably determined
@@ -1473,7 +1499,7 @@ class LegendaryCore:
                 game.base_urls = _base_urls
 
             if not old_bytes:
-                self.log.error(f'Could not load old manifest, patching will not work!')
+                self.log.error('Could not load old manifest, patching will not work!')
             else:
                 old_manifest = self.load_manifest(old_bytes)
 
@@ -1528,7 +1554,7 @@ class LegendaryCore:
                               f'"{new_manifest.meta.build_id}"...')
                 new_manifest.apply_delta_manifest(delta_manifest)
             else:
-                self.log.debug(f'No Delta manifest received from CDN.')
+                self.log.debug('No Delta manifest received from CDN.')
 
         # reuse existing installation's directory
         if igame := self.get_installed_game(base_game.app_name if base_game else game.app_name):
@@ -1854,7 +1880,7 @@ class LegendaryCore:
                 installed_game.install_path, filelist,
                 case_insensitive=installed_game.platform.startswith('Win')
         ):
-            self.log.warning(f'Deleting some deselected files failed, please check/remove manually.')
+            self.log.warning('Deleting some deselected files failed, please check/remove manually.')
 
     def prereq_installed(self, app_name):
         igame = self.lgd.get_installed_game(app_name)
@@ -1895,7 +1921,7 @@ class LegendaryCore:
                         needs_verify = True
 
                 if not needs_verify:
-                    self.log.debug(f'No in-progress installation found, assuming complete...')
+                    self.log.debug('No in-progress installation found, assuming complete...')
 
         manifest_secrets = dict()
         if not manifest_data:
@@ -2042,8 +2068,8 @@ class LegendaryCore:
         except ValueError as e:
             self.log.warning(f'Deleting EGL manifest failed: {e!r}')
         except FileNotFoundError:
-            self.log.warning(f'EGL manifest was already deleted, in case you uninstalled the Epic Games Launcher'
-                             f' please disable and unlink EGL Sync.')
+            self.log.warning('EGL manifest was already deleted, in case you uninstalled the Epic Games Launcher'
+                             ' please disable and unlink EGL Sync.')
 
         if delete_files:
             delete_folder(os.path.join(igame.install_path, '.egstore'))

@@ -4,17 +4,11 @@ def get_boolean_choice(prompt, default=True):
     choice = input(f'{prompt} [{yn}]: ')
     if not choice:
         return default
-    elif choice[0].lower() == 'y':
-        return True
-    else:
-        return False
+    return choice[0].lower() == 'y'
 
 
 def get_int_choice(prompt, default=None, min_choice=None, max_choice=None, return_on_invalid=False):
-    if default is not None:
-        prompt = f'{prompt} [{default}]: '
-    else:
-        prompt = f'{prompt}: '
+    prompt = f'{prompt} [{default}]: ' if default is not None else f'{prompt}: '
 
     while True:
         try:
@@ -55,7 +49,7 @@ def sdl_prompt(sdl_data, title):
             continue
         print(' *', tag, '-', info['name'])
 
-    examples = ', '.join([g for g in sdl_data.keys() if g != '__required'][:2])
+    examples = ', '.join([g for g in sdl_data if g != '__required'][:2])
     print(f'Please enter tags of pack(s) to install (space/comma-separated, e.g. "{examples}")')
     print('Leave blank to use defaults (only required data will be downloaded).')
     choices = input('Additional packs [Enter to confirm]: ')
@@ -87,5 +81,5 @@ def strtobool(val):
     elif val in ('n', 'no', 'f', 'false', 'off', '0', ''):
         return 0
     else:
-        raise ValueError("invalid truth value %r" % (val,))
+        raise ValueError(f"invalid truth value {val!r}")
 

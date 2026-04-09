@@ -1,5 +1,5 @@
-import logging
 import json
+import logging
 import os
 import webbrowser
 
@@ -115,7 +115,7 @@ class MockLauncher:
         try:
             j = json.loads(sid_json)
             sid = j['sid']
-            logger.debug(f'Got SID (stage 2)! Executing sid login callback...')
+            logger.debug('Got SID (stage 2)! Executing sid login callback...')
             exchange_code = self.callback_sid(sid)
             if exchange_code:
                 self.callback_result = self.callback_code(exchange_code)

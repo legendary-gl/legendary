@@ -1,22 +1,31 @@
-# coding: utf-8
 
 # please don't look at this code too hard, it's a mess.
 
 import logging
 import os
 import time
-
 from collections import Counter, defaultdict, deque
 from logging.handlers import QueueHandler
-from multiprocessing import cpu_count, Process, Queue as MPQueue
+from multiprocessing import Process, cpu_count
+from multiprocessing import Queue as MPQueue
 from multiprocessing.shared_memory import SharedMemory
 from queue import Empty
 from sys import exit
 from threading import Condition, Thread
 
 from legendary.downloader.mp.workers import DLWorker, FileWorker
-from legendary.models.downloading import *
-from legendary.models.manifest import ManifestComparison, Manifest
+from legendary.models.downloading import (
+    AnalysisResult,
+    ChunkTask,
+    DownloaderTask,
+    FileTask,
+    SharedMemorySegment,
+    TaskFlags,
+    TerminateWorkerTask,
+    UIUpdate,
+    WriterTask,
+)
+from legendary.models.manifest import Manifest, ManifestComparison
 
 
 class DLManager(Process):
@@ -107,7 +116,7 @@ class DLManager(Process):
         is_1mib = analysis_res.biggest_chunk == 1024 * 1024
         self.log.debug(f'Biggest chunk size: {analysis_res.biggest_chunk} bytes (== 1 MiB? {is_1mib})')
 
-        self.log.debug(f'Creating manifest comparison...')
+        self.log.debug('Creating manifest comparison...')
         mc = ManifestComparison.create(manifest, old_manifest)
         analysis_res.manifest_comparison = mc
 
@@ -380,11 +389,11 @@ class DLManager(Process):
             if reused:
                 self.log.debug(f' + Reusing {reused} chunks from: {current_file.filename}')
                 # open temporary file that will contain download + old file contents
-                self.tasks.append(FileTask(current_file.filename + u'.tmp', flags=TaskFlags.OPEN_FILE))
+                self.tasks.append(FileTask(current_file.filename + '.tmp', flags=TaskFlags.OPEN_FILE))
                 self.tasks.extend(chunk_tasks)
-                self.tasks.append(FileTask(current_file.filename + u'.tmp', flags=TaskFlags.CLOSE_FILE))
+                self.tasks.append(FileTask(current_file.filename + '.tmp', flags=TaskFlags.CLOSE_FILE))
                 # delete old file and rename temporary
-                self.tasks.append(FileTask(current_file.filename, old_file=current_file.filename + u'.tmp',
+                self.tasks.append(FileTask(current_file.filename, old_file=current_file.filename + '.tmp',
                                            flags=TaskFlags.RENAME_FILE | TaskFlags.DELETE_FILE))
             else:
                 self.tasks.append(FileTask(current_file.filename, flags=TaskFlags.OPEN_FILE))
@@ -659,7 +668,7 @@ class DLManager(Process):
         self.dl_result_q = MPQueue(-1)
         self.writer_result_q = MPQueue(-1)
 
-        self.log.info(f'Starting download workers...')
+        self.log.info('Starting download workers...')
 
         bind_ip = None
         for i in range(self.max_workers):
@@ -773,7 +782,7 @@ class DLManager(Process):
 
             time.sleep(self.update_interval)
 
-        for i in range(self.max_workers):
+        for _ in range(self.max_workers):
             self.dl_worker_queue.put_nowait(TerminateWorkerTask())
 
         self.log.info('Waiting for installation to finish...')
@@ -781,7 +790,7 @@ class DLManager(Process):
 
         writer_p.join(timeout=10.0)
         if writer_p.exitcode is None:
-            self.log.warning(f'Terminating writer process, no exit code!')
+            self.log.warning('Terminating writer process, no exit code!')
             writer_p.terminate()
 
         # forcibly kill DL workers that are not actually dead yet

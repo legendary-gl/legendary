@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# coding: utf-8
 
 import argparse
 import csv
@@ -10,25 +9,46 @@ import shlex
 import subprocess
 import time
 import webbrowser
-
 from collections import defaultdict, namedtuple
 from logging.handlers import QueueListener
-from multiprocessing import freeze_support, Queue as MPQueue
+from multiprocessing import Queue as MPQueue
+from multiprocessing import freeze_support
 from platform import platform
-from sys import exit, stdout, platform as sys_platform
+from sys import exit, stdout
+from sys import platform as sys_platform
 
-from legendary import __version__, __codename__
+from legendary import __codename__, __version__
 from legendary.core import LegendaryCore
+from legendary.lfs.crossover import (
+    mac_find_crossover_apps,
+    mac_get_bottle_path,
+    mac_get_crossover_bottles,
+    mac_get_crossover_version,
+    mac_is_crossover_running,
+    mac_is_valid_bottle,
+)
+from legendary.lfs.eos import (
+    add_registry_entries,
+    query_registry_entries,
+    remove_registry_entries,
+)
+from legendary.lfs.utils import clean_filename, validate_files
+from legendary.lfs.wine_helpers import (
+    case_insensitive_file_search,
+    get_shell_folders,
+    read_registry,
+)
 from legendary.models.exceptions import InvalidCredentialsError
-from legendary.models.game import SaveGameStatus, VerifyResult, Game
-from legendary.utils.cli import get_boolean_choice, get_int_choice, sdl_prompt, strtobool
-from legendary.lfs.crossover import *
+from legendary.models.game import Game, SaveGameStatus, VerifyResult
+from legendary.utils.cli import (
+    get_boolean_choice,
+    get_int_choice,
+    sdl_prompt,
+    strtobool,
+)
 from legendary.utils.custom_parser import HiddenAliasSubparsersAction
 from legendary.utils.env import is_windows_mac_or_pyi
-from legendary.lfs.eos import add_registry_entries, query_registry_entries, remove_registry_entries
-from legendary.lfs.utils import validate_files, clean_filename
 from legendary.utils.selective_dl import get_sdl_appname
-from legendary.lfs.wine_helpers import read_registry, get_shell_folders, case_insensitive_file_search
 
 # todo custom formatter for cli logger (clean info, highlighted error/warning)
 logging.basicConfig(
@@ -146,7 +166,10 @@ class LegendaryCLI:
         auth_code = ''
         if not args.auth_code and not args.session_id and not args.ex_token:
             # only import here since pywebview import is slow
-            from legendary.utils.webview_login import webview_available, do_webview_login
+            from legendary.utils.webview_login import (
+                do_webview_login,
+                webview_available,
+            )
 
             if not webview_available or args.no_webview or self.core.webview_killswitch:
                 # unfortunately the captcha stuff makes a complete CLI login flow kinda impossible right now...
@@ -179,9 +202,7 @@ class LegendaryCLI:
             logger.fatal('No exchange token/authorization code, cannot login.')
             return
 
-        if exchange_token and self.core.auth_ex_token(exchange_token):
-            logger.info(f'Successfully logged in as "{self.core.lgd.userdata["displayName"]}"')
-        elif auth_code and self.core.auth_code(auth_code):
+        if exchange_token and self.core.auth_ex_token(exchange_token) or auth_code and self.core.auth_code(auth_code):
             logger.info(f'Successfully logged in as "{self.core.lgd.userdata["displayName"]}"')
         else:
             logger.error('Login attempt failed, please see log for details.')
@@ -211,7 +232,7 @@ class LegendaryCLI:
 
         # sort games and dlc by name
         games = sorted(games, key=lambda x: x.app_title.lower())
-        for citem_id in dlc_list.keys():
+        for citem_id in dlc_list:
             if citem_id in na_dlcs:
                 dlc_list[citem_id].extend(na_dlcs[citem_id])
             dlc_list[citem_id] = sorted(dlc_list[citem_id], key=lambda d: d.app_title.lower())
@@ -543,7 +564,7 @@ class LegendaryCLI:
                     continue
 
                 if not args.yes and not args.force_download:
-                    if not get_boolean_choice(f'Download cloud save?'):
+                    if not get_boolean_choice('Download cloud save?'):
                         logger.info('Not downloading...')
                         continue
 
@@ -564,7 +585,7 @@ class LegendaryCLI:
                     continue
 
                 if not args.yes and not args.force_upload:
-                    if not get_boolean_choice(f'Upload local save?'):
+                    if not get_boolean_choice('Upload local save?'):
                         logger.info('Not uploading...')
                         continue
                 logger.info('Uploading local savegame...')
@@ -581,7 +602,7 @@ class LegendaryCLI:
 
         if args.origin or args.ubisoft:
             return self._launch_third_party(args)
-        
+
         igame = self.core.get_installed_game(app_name)
         if (not igame or not igame.executable) and (game := self.core.get_game(app_name)) is not None:
             # override installed game with base title
@@ -727,7 +748,7 @@ class LegendaryCLI:
             return
 
         if not game.is_origin_game and not game.is_ubisoft_game:
-            logger.error(f'The specified game is not an Origin or Ubisoft title.')
+            logger.error('The specified game is not an Origin or Ubisoft title.')
             return
 
         # login is not required to launch the game, but linking does require it.
@@ -792,8 +813,8 @@ class LegendaryCLI:
                 logger.info(f'Using CrossOver Bottle "{bottle_name}"')
 
         if not command:
-            logger.error(f'In order to launch correctly you must specify a prefix and wine binary or '
-                         f'wrapper in the configuration file or command line. See the README for details.')
+            logger.error('In order to launch correctly you must specify a prefix and wine binary or '
+                         'wrapper in the configuration file or command line. See the README for details.')
             return
 
         # You cannot launch a URI without start.exe
@@ -1088,7 +1109,7 @@ class LegendaryCLI:
 
                     install_dlcs = not args.skip_dlcs
                     if not args.yes and not args.with_dlcs and not args.skip_dlcs:
-                        if not get_boolean_choice(f'Do you wish to automatically install DLCs?'):
+                        if not get_boolean_choice('Do you wish to automatically install DLCs?'):
                             install_dlcs = False
 
                     if install_dlcs:
@@ -1359,7 +1380,7 @@ class LegendaryCLI:
                                  f'(App name: "{main_game_appname}") is not installed!')
                     return
             else:
-                logger.fatal(f'Unable to get base game information for DLC, cannot continue.')
+                logger.fatal('Unable to get base game information for DLC, cannot continue.')
                 return
 
         # get everything needed for import from core, then run additional checks.
@@ -1411,7 +1432,7 @@ class LegendaryCLI:
                 logger.info(f'Found {len(dlcs)} items of DLC that could be imported.')
                 import_dlc = True
                 if not args.yes and not args.with_dlcs:
-                    if not get_boolean_choice(f'Do you wish to automatically attempt to import all DLCs?'):
+                    if not get_boolean_choice('Do you wish to automatically attempt to import all DLCs?'):
                         import_dlc = False
 
                 if import_dlc:
@@ -1793,9 +1814,7 @@ class LegendaryCLI:
                     if igame := self.core.get_installed_game(app_name):
                         installed_dlc_json.append(dict(app_name=igame.app_name, title=igame.title,
                                                        install_size=igame.install_size))
-                        installed_dlc_human.append('App name: {}, Title: "{}", Size: {:.02f} GiB'.format(
-                            igame.app_name, igame.title, igame.install_size / 1024 / 1024 / 1024
-                        ))
+                        installed_dlc_human.append(f'App name: {igame.app_name}, Title: "{igame.title}", Size: {igame.install_size / 1024 / 1024 / 1024:.02f} GiB')
                 installation_info.append(InfoItem('Installed DLC', 'installed_dlc',
                                                   installed_dlc_human or None,
                                                   installed_dlc_json))
@@ -1868,11 +1887,11 @@ class LegendaryCLI:
                                           manifest.chunk_data_list.count))
             # total file size
             total_size = sum(fm.file_size for fm in manifest.file_manifest_list.elements)
-            file_size = '{:.02f} GiB'.format(total_size / 1024 / 1024 / 1024)
+            file_size = f'{total_size / 1024 / 1024 / 1024:.02f} GiB'
             manifest_info.append(InfoItem('Disk size (uncompressed)', 'disk_size', file_size, total_size))
             # total chunk size
             total_size = sum(c.file_size for c in manifest.chunk_data_list.elements)
-            chunk_size = '{:.02f} GiB'.format(total_size / 1024 / 1024 / 1024)
+            chunk_size = f'{total_size / 1024 / 1024 / 1024:.02f} GiB'
             manifest_info.append(InfoItem('Download size (compressed)', 'download_size',
                                           chunk_size, total_size))
 
@@ -1890,7 +1909,7 @@ class LegendaryCLI:
                                  (tag in fm.install_tags) or (not tag and not fm.install_tags)]
                     tag_file_size = sum(fm.file_size for fm in tag_files)
                     tag_disk_size.append(dict(tag=tag, size=tag_file_size, count=len(tag_files)))
-                    tag_file_size_human = '{:.02f} GiB'.format(tag_file_size / 1024 / 1024 / 1024)
+                    tag_file_size_human = f'{tag_file_size / 1024 / 1024 / 1024:.02f} GiB'
                     tag_disk_size_human.append(f'{human_tag.ljust(longest_tag)} - {tag_file_size_human} '
                                                f'(Files: {len(tag_files)})')
                     # tag_disk_size_human.append(f'Size: {tag_file_size_human}, Files: {len(tag_files)}, Tag: "{tag}"')
@@ -1903,7 +1922,7 @@ class LegendaryCLI:
                     tag_chunk_size = sum(c.file_size for c in manifest.chunk_data_list.elements
                                          if c.guid_num in tag_chunk_guids)
                     tag_download_size.append(dict(tag=tag, size=tag_chunk_size, count=len(tag_chunk_guids)))
-                    tag_chunk_size_human = '{:.02f} GiB'.format(tag_chunk_size / 1024 / 1024 / 1024)
+                    tag_chunk_size_human = f'{tag_chunk_size / 1024 / 1024 / 1024:.02f} GiB'
                     tag_download_size_human.append(f'{human_tag.ljust(longest_tag)} - {tag_chunk_size_human} '
                                                    f'(Chunks: {len(tag_chunk_guids)})')
 
@@ -2304,7 +2323,7 @@ class LegendaryCLI:
             reg_paths = query_registry_entries(prefix)
             if old_path := reg_paths["overlay_path"]:
                 if os.path.normpath(old_path) == args.path:
-                    logger.info(f'Overlay already enabled, nothing to do.')
+                    logger.info('Overlay already enabled, nothing to do.')
                     return
                 else:
                     logger.info(f'Updating overlay registry entries from "{old_path}" to "{args.path}"')
@@ -2319,7 +2338,7 @@ class LegendaryCLI:
             remove_registry_entries(prefix)
             # if the install is not managed by legendary, specify the command including the path
             if self.core.is_overlay_installed():
-                logger.info(f'To re-enable the overlay, run: legendary eos-overlay enable')
+                logger.info('To re-enable the overlay, run: legendary eos-overlay enable')
             else:
                 logger.info(f'To re-enable the overlay, run: legendary eos-overlay enable --path "{old_path}"')
 
@@ -2338,7 +2357,7 @@ class LegendaryCLI:
 
             if os.name != 'nt' and not prefix:
                 logger.info('Registry entries in prefixes (if any) have not been removed. '
-                            f'This shouldn\'t cause any issues as the overlay will simply fail to load.')
+                            'This shouldn\'t cause any issues as the overlay will simply fail to load.')
             else:
                 logger.info('Removing registry entries...')
                 remove_registry_entries(prefix)
@@ -2350,7 +2369,7 @@ class LegendaryCLI:
 
         elif args.action in {'install', 'update'}:
             if args.action == 'update' and not self.core.is_overlay_installed():
-                logger.error(f'Overlay not installed, nothing to update.')
+                logger.error('Overlay not installed, nothing to update.')
                 return
             logger.info('Preparing to start overlay install...')
             dlm, ares, igame = self.core.prepare_overlay_install(args.path)
@@ -2390,7 +2409,7 @@ class LegendaryCLI:
                             logger.info(f'Updating overlay registry entries from "{old_path}" to "{install_path}"')
                             remove_registry_entries(prefix)
                         else:
-                            logger.info(f'Registry entries already exist. Done.')
+                            logger.info('Registry entries already exist. Done.')
                             return
                     add_registry_entries(install_path, prefix)
                     logger.info('Done.')
@@ -2425,7 +2444,7 @@ class LegendaryCLI:
         if args.crossover_app:
             cx_version = mac_get_crossover_version(args.crossover_app)
             if not cx_version:
-                logger.error(f'No valid CrossOver install specified!')
+                logger.error('No valid CrossOver install specified!')
                 return
             logger.info(f'Using CrossOver {cx_version} at {args.crossover_app}')
         else:
@@ -2436,9 +2455,9 @@ class LegendaryCLI:
                 for i, (ver, path) in enumerate(apps, start=1):
                     print(f'  {i:2d}. {ver} ({path})')
                 print('')
-                choice = get_int_choice(f'Select a CrossOver install', 1, 1, len(apps))
+                choice = get_int_choice('Select a CrossOver install', 1, 1, len(apps))
                 if choice is None:
-                    logger.error(f'No valid choice made, aborting.')
+                    logger.error('No valid choice made, aborting.')
                     exit(1)
                 # empty line just to make the output look a little less crammed
                 print('')
@@ -2447,8 +2466,8 @@ class LegendaryCLI:
                 cx_version, args.crossover_app = apps[0]
                 logger.info(f'Found CrossOver {cx_version} at {args.crossover_app}')
             else:
-                logger.error(f'No CrossOver installs found, see https://legendary.gl/crossover-setup '
-                             f'for setup instructions')
+                logger.error('No CrossOver installs found, see https://legendary.gl/crossover-setup '
+                             'for setup instructions')
                 return
 
         forced_selection = None
@@ -2456,7 +2475,7 @@ class LegendaryCLI:
 
         if args.crossover_bottle:
             if args.crossover_bottle not in bottles:
-                logger.error(f'No valid CrossOver bottle specified!')
+                logger.error('No valid CrossOver bottle specified!')
                 return
             logger.info(f'Using Bottle "{args.crossover_bottle}"')
             forced_selection = args.crossover_bottle
@@ -2481,8 +2500,8 @@ class LegendaryCLI:
                         f'(Total: {len(available_bottles)})')
 
             if not usable_bottles:
-                logger.info(f'No usable bottles found, see https://legendary.gl/crossover-setup for '
-                            f'manual setup instructions.')
+                logger.info('No usable bottles found, see https://legendary.gl/crossover-setup for '
+                            'manual setup instructions.')
                 install_candidate = None
             else:
                 print('\nFound available bottle(s), please select one:')
@@ -2507,11 +2526,11 @@ class LegendaryCLI:
                         print(f'  {i:2d}. {bottle["name"]} ({bottle["description"]})')
 
                 print('')
-                choice = get_int_choice(f'Select a bottle (CTRL+C to abort)',
+                choice = get_int_choice('Select a bottle (CTRL+C to abort)',
                                         default_choice, 1, len(usable_bottles),
                                         return_on_invalid=True)
                 if choice is None:
-                    logger.error(f'No valid choice made, aborting.')
+                    logger.error('No valid choice made, aborting.')
                     return
                 # empty line just to make the output look a little less crammed
                 print('')
@@ -2522,7 +2541,7 @@ class LegendaryCLI:
                 logger.info(f'Preparing to download "{bottle_name}" ({install_candidate["description"]})...')
 
                 if bottle_name in bottles:
-                    logger.warning(f'Bottle with the same name already exists!')
+                    logger.warning('Bottle with the same name already exists!')
                     new_name = input('Please provide a new name for the bottle [CTRL-C or empty to abort]: ')
                     if not new_name:
                         logger.error('No new name provided, aborting.')
@@ -2574,9 +2593,9 @@ class LegendaryCLI:
                     print(f'  {i:2d}. {bottle}')
             print('')
 
-            choice = get_int_choice(f'Select a bottle', default_choice, 1, len(bottles))
+            choice = get_int_choice('Select a bottle', default_choice, 1, len(bottles))
             if choice is None:
-                logger.error(f'No valid choice made, aborting.')
+                logger.error('No valid choice made, aborting.')
                 exit(1)
             # empty line just to make the output look a little less crammed
             print('')
@@ -2640,7 +2659,7 @@ class LegendaryCLI:
                                 f'"legendary move {app_name} "{args.new_path}" --skip-move"')
                 return
         else:
-            logger.info(f'Not moving, just rewriting legendary metadata...')
+            logger.info('Not moving, just rewriting legendary metadata...')
 
         igame.install_path = new_path
         self.core.install_game(igame)
@@ -3206,7 +3225,7 @@ def main():
     # show note if update is available
     if not disable_update_message and cli.core.update_available and cli.core.update_notice_enabled():
         if update_info := cli.core.get_update_info():
-            print(f'\nLegendary update available!')
+            print('\nLegendary update available!')
             print(f'- New version: {update_info["version"]} - "{update_info["name"]}"')
             print(f'- Release summary:\n{update_info["summary"]}\n- Release URL: {update_info["gh_url"]}')
             if update_info['critical']:

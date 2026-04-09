@@ -1,10 +1,7 @@
-# coding: utf-8
 
 import configparser
 import json
 import os
-
-from typing import List
 
 from legendary.models.egl import EGLManifest
 
@@ -62,7 +59,7 @@ class EPCLFS:
                 data = json.load(open(os.path.join(self.programdata_path, f), encoding='utf-8'))
                 self.manifests[data['AppName']] = data
 
-    def get_manifests(self) -> List[EGLManifest]:
+    def get_manifests(self) -> list[EGLManifest]:
         if not self.manifests:
             self.read_manifests()
 

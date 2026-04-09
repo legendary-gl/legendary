@@ -78,7 +78,8 @@ def add_round_key(s, k):
 
 
 # learned from http://cs.ucsb.edu/~koc/cs178/projects/JT/aes.c
-xtime = lambda a: (((a << 1) ^ 0x1B) & 0xFF) if (a & 0x80) else (a << 1)
+def xtime(a):
+    return (((a << 1) ^ 0x1B) & 0xFF) if (a & 0x80) else (a << 1)
 
 
 def mix_single_column(a):
@@ -243,6 +244,6 @@ def decrypt_epic_data(key, encrypted):
     for encoding in (locale.getpreferredencoding(), 'cp1252', 'cp932', 'ascii', 'utf-8'):
         try:
             return decrypted.decode(encoding)
-        except:  # ignore exception, just try the next encoding
+        except Exception:  # ignore exception, just try the next encoding
             continue
     raise ValueError('Failed to decode decrypted data')

@@ -1,5 +1,4 @@
 # This file contains definitions for selective downloading for supported games
-# coding: utf-8
 
 _cyberpunk_sdl = {
     'de': {'tags': ['voice_de_de'], 'name': 'Deutsch'},
@@ -32,7 +31,7 @@ games = {
 
 
 def get_sdl_appname(app_name):
-    for k in games.keys():
+    for k in games:
         if k.endswith('_Mac'):
             continue
         

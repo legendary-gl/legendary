@@ -1,6 +1,6 @@
+import ctypes
 import logging
 import winreg
-import ctypes
 
 _logger = logging.getLogger('WindowsHelpers')
 

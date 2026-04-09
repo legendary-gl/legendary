@@ -1,9 +1,8 @@
-# coding: utf-8
 
-from datetime import datetime
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
-from typing import Optional, List, Dict
+from typing import Optional
 
 
 @dataclass
@@ -17,7 +16,7 @@ class GameAsset:
     catalog_item_id: str = ''
     label_name: str = ''
     namespace: str = ''
-    metadata: Dict = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
     sidecar_rev: int = 0
 
     @classmethod
@@ -52,7 +51,7 @@ class Sidecar:
     """
     App sidecar data
     """
-    config: Dict
+    config: dict
     rev: int
 
     @classmethod
@@ -68,9 +67,9 @@ class Achievements:
     namespace: str
     total_achievements: int
     total_product_xp: int
-    achievement_sets: List = field(default_factory=list)
-    platinum_rarity: Dict = field(default_factory=dict)
-    achievements: List = field(default_factory=list)
+    achievement_sets: list = field(default_factory=list)
+    platinum_rarity: dict = field(default_factory=dict)
+    achievements: list = field(default_factory=list)
 
     @classmethod
     def from_egs_json(cls, json):
@@ -106,9 +105,9 @@ class Game:
     app_name: str
     app_title: str
 
-    asset_infos: Dict[str, GameAsset] = field(default_factory=dict)
-    base_urls: List[str] = field(default_factory=list)
-    metadata: Dict = field(default_factory=dict)
+    asset_infos: dict[str, GameAsset] = field(default_factory=dict)
+    base_urls: list[str] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
     sidecar: Optional[Sidecar] = None
     achievements: Optional[Achievements] = None
 
@@ -222,19 +221,19 @@ class InstalledGame:
     title: str
     version: str
 
-    base_urls: List[str] = field(default_factory=list)
+    base_urls: list[str] = field(default_factory=list)
     can_run_offline: bool = False
     egl_guid: str = ''
     executable: str = ''
     install_size: int = 0
-    install_tags: List[str] = field(default_factory=list)
+    install_tags: list[str] = field(default_factory=list)
     is_dlc: bool = False
     launch_parameters: str = ''
     manifest_path: str = ''
     needs_verification: bool = False
     platform: str = 'Windows'
-    prereq_info: Optional[Dict] = None
-    uninstaller: Optional[Dict] = None
+    prereq_info: Optional[dict] = None
+    uninstaller: Optional[dict] = None
     requires_ot: bool = False
     save_path: Optional[str] = None
     is_preloaded: bool = False

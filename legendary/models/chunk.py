@@ -1,11 +1,10 @@
-# coding: utf-8
 
 import struct
 import zlib
-
 from hashlib import sha1
 from io import BytesIO
 from uuid import uuid4
+
 from Cryptodome.Cipher import AES
 
 from legendary.utils.rolling_hash import get_hash
@@ -74,7 +73,7 @@ class Chunk:
     @property
     def guid_str(self):
         if not self._guid_str:
-            self._guid_str = '-'.join('{:08x}'.format(g) for g in self.guid)
+            self._guid_str = '-'.join(f'{g:08x}' for g in self.guid)
         return self._guid_str
 
     @property
@@ -123,7 +122,7 @@ class Chunk:
         
         if _chunk.header_version >= 4:
             _chunk.secret_guid = struct.unpack('<IIII', bio.read(16))
-            _chunk.secret_key = secrets.get(''.join('{:08X}'.format(g) for g in _chunk.secret_guid))
+            _chunk.secret_key = secrets.get(''.join(f'{g:08X}' for g in _chunk.secret_guid))
             _chunk.encryption_tag = bio.read(16)
 
         if bio.tell() - head_start != _chunk.header_size:

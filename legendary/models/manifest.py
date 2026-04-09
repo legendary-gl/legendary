@@ -1,17 +1,16 @@
-# coding: utf-8
 
 from __future__ import annotations
 
+import base64
+import contextlib
 import hashlib
 import logging
 import struct
-import base64
 import zlib
-from Cryptodome.Cipher import AES
-
 from base64 import b64encode
 from io import BytesIO
-from typing import Optional
+
+from Cryptodome.Cipher import AES
 
 logger = logging.getLogger('Manifest')
 
@@ -82,11 +81,11 @@ class Manifest:
         self.data = b''
 
         # remainder
-        self.meta: Optional[ManifestMeta] = None
-        self.chunk_data_list: Optional[CDL] = None
-        self.file_manifest_list: Optional[FML] = None
-        self.custom_fields: Optional[CustomFields] = None
-        self.encrypted_data: Optional[EncryptedData] = None
+        self.meta: ManifestMeta | None = None
+        self.chunk_data_list: CDL | None = None
+        self.file_manifest_list: FML | None = None
+        self.custom_fields: CustomFields | None = None
+        self.encrypted_data: EncryptedData | None = None
 
     @property
     def compressed(self):
@@ -99,7 +98,7 @@ class Manifest:
     def decrypt(self, secrets):
         if not self.encrypted:
             return True
-        secret_str = ''.join('{:08X}'.format(guid) for guid in self.secret_guid)
+        secret_str = ''.join(f'{guid:08X}' for guid in self.secret_guid)
         secret = secrets.get(secret_str)
         if secret is None:
             return False
@@ -262,10 +261,8 @@ class Manifest:
         self.file_manifest_list._path_map = None
 
         # ensure guid map exists (0 will most likely yield no result, so ignore ValueError)
-        try:
+        with contextlib.suppress(ValueError):
             self.chunk_data_list.get_chunk_by_guid(0)
-        except ValueError:
-            pass
 
         # add new chunks from delta manifest to main manifest and again clear maps and update count
         existing_chunk_guids = self.chunk_data_list._guid_int_map.keys()
@@ -560,14 +557,12 @@ class ChunkInfo:
         self._guid_num = None
 
     def __repr__(self):
-        return '<ChunkInfo (guid={}, hash={}, sha_hash={}, group_num={}, window_size={}, file_size={})>'.format(
-            self.guid_str, self.hash, self.sha_hash.hex(), self.group_num, self.window_size, self.file_size
-        )
+        return f'<ChunkInfo (guid={self.guid_str}, hash={self.hash}, sha_hash={self.sha_hash.hex()}, group_num={self.group_num}, window_size={self.window_size}, file_size={self.file_size})>'
 
     @property
     def guid_str(self):
         if not self._guid_str:
-            self._guid_str = '-'.join('{:08x}'.format(g) for g in self.guid)
+            self._guid_str = '-'.join(f'{g:08x}' for g in self.guid)
 
         return self._guid_str
 
@@ -602,12 +597,10 @@ class ChunkInfo:
             secret_part = secret_b64 if not guid_invalid else 'plain'
             hash_b64 = base64.urlsafe_b64encode(struct.pack('<Q', self.hash)).decode().strip('=')
             guid_b64 = base64.urlsafe_b64encode(struct.pack('<IIII', *self.guid)).decode().strip('=')
-            return '{}/{}/{:02d}/{}_{}.chunk'.format(
-                get_chunk_dir(self._manifest_version), secret_part,
-                self.group_num, hash_b64, guid_b64)
+            return f'{get_chunk_dir(self._manifest_version)}/{secret_part}/{self.group_num:02d}/{hash_b64}_{guid_b64}.chunk'
         return '{}/{:02d}/{:016X}_{}.chunk'.format(
             get_chunk_dir(self._manifest_version), self.group_num,
-            self.hash, ''.join('{:08X}'.format(g) for g in self.guid))
+            self.hash, ''.join(f'{g:08X}' for g in self.guid))
 
 
 class FML:
@@ -815,7 +808,7 @@ class ChunkPart:
     @property
     def guid_str(self):
         if not self._guid_str:
-            self._guid_str = '-'.join('{:08x}'.format(g) for g in self.guid)
+            self._guid_str = '-'.join(f'{g:08x}' for g in self.guid)
         return self._guid_str
 
     @property
@@ -825,9 +818,8 @@ class ChunkPart:
         return self._guid_num
 
     def __repr__(self):
-        guid_readable = '-'.join('{:08x}'.format(g) for g in self.guid)
-        return '<ChunkPart (guid={}, offset={}, size={}, file_offset={})>'.format(
-            guid_readable, self.offset, self.size, self.file_offset)
+        guid_readable = '-'.join(f'{g:08x}' for g in self.guid)
+        return f'<ChunkPart (guid={guid_readable}, offset={self.offset}, size={self.size}, file_offset={self.file_offset})>'
 
 
 class CustomFields:

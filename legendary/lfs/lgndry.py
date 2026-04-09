@@ -1,23 +1,20 @@
-# coding: utf-8
 
 import json
-import os
 import logging
-
-from contextlib import contextmanager
+import os
 from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 from time import time
 
 from filelock import FileLock
 
-from .utils import clean_filename, LockedJSONData
-
-from legendary.models.game import *
-from legendary.utils.aliasing import generate_aliases
 from legendary.models.config import LGDConf
+from legendary.models.game import Game, GameAsset, InstalledGame
+from legendary.utils.aliasing import generate_aliases
 from legendary.utils.env import is_windows_mac_or_pyi
 
+from .utils import LockedJSONData, clean_filename
 
 FILELOCK_DEBUG = False
 
@@ -252,7 +249,7 @@ class LGDLFS:
         try:
             return open(self._get_manifest_filename(app_name, version, platform), 'rb').read()
         except FileNotFoundError:  # all other errors should propagate
-            self.log.debug(f'Loading manifest failed, retrying without platform in filename...')
+            self.log.debug('Loading manifest failed, retrying without platform in filename...')
             try:
                 return open(self._get_manifest_filename(app_name, version), 'rb').read()
             except FileNotFoundError:  # all other errors should propagate
@@ -487,7 +484,7 @@ class LGDLFS:
         collisions = set()
         alias_map = defaultdict(set)
 
-        for app_name in self._game_metadata.keys():
+        for app_name in self._game_metadata:
             game = self.get_game_meta(app_name)
             if game.is_dlc:
                 continue
@@ -501,7 +498,7 @@ class LGDLFS:
                     collisions.add(alias)
 
         # remove colliding aliases from map and add aliases to lookup table
-        for app_name, aliases in alias_map.items():
+        for app_name in alias_map:
             alias_map[app_name] -= collisions
             for alias in alias_map[app_name]:
                 self.aliases[alias] = app_name

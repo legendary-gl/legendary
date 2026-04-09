@@ -1,12 +1,17 @@
-# coding: utf-8
 
 import json
 import struct
-
 from copy import deepcopy
 
 from legendary.models.manifest import (
-    Manifest, ManifestMeta, CDL, ChunkPart, ChunkInfo, FML, FileManifest, CustomFields
+    CDL,
+    FML,
+    ChunkInfo,
+    ChunkPart,
+    CustomFields,
+    FileManifest,
+    Manifest,
+    ManifestMeta,
 )
 
 

@@ -40,7 +40,7 @@ roman = {
 
 
 def _filter(input):
-    return ''.join(l for l in input if l in allowed_characters)
+    return ''.join(char for char in input if char in allowed_characters)
 
 
 def generate_aliases(game_name, game_folder=None, split_words=True, app_name=None):

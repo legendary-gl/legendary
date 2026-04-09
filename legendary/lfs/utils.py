@@ -1,15 +1,13 @@
-# coding: utf-8
 
-import os
-import shutil
 import hashlib
 import json
 import logging
-
+import os
+import shutil
+from collections.abc import Iterator
 from pathlib import Path
 from sys import stdout
 from time import perf_counter
-from typing import List, Iterator
 
 from filelock import FileLock
 
@@ -33,7 +31,7 @@ def delete_folder(path: str, recursive=True) -> bool:
         return True
 
 
-def delete_filelist(path: str, filenames: List[str],
+def delete_filelist(path: str, filenames: list[str],
                     delete_root_directory: bool = False,
                     silent: bool = False, case_insensitive: bool = True) -> bool:
     dirs = set()
@@ -87,7 +85,7 @@ def delete_filelist(path: str, filenames: List[str],
     return no_error
 
 
-def validate_files(base_path: str, filelist: List[tuple], hash_type='sha1',
+def validate_files(base_path: str, filelist: list[tuple], hash_type='sha1',
                    large_file_threshold=1024 * 1024 * 512, case_insensitive: bool = True) -> Iterator[tuple]:
     """
     Validates the files in filelist in path against the provided hashes

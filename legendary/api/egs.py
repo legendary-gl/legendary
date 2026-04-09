@@ -1,16 +1,20 @@
 # !/usr/bin/env python
-# coding: utf-8
 
+import logging
 import urllib.parse
 
 import requests
 import requests.adapters
-import logging
-
 from requests.auth import HTTPBasicAuth
 
 from legendary.models.exceptions import InvalidCredentialsError
-from legendary.models.gql import *
+from legendary.models.gql import (
+    egl_game_achievements_query,
+    egl_game_achievements_user_query,
+    uplay_claim_query,
+    uplay_codes_query,
+    uplay_redeem_query,
+)
 
 
 class EPCAPI:

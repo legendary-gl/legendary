@@ -1,6 +1,5 @@
 import logging
 import os
-
 from datetime import datetime
 from fnmatch import fnmatch
 from hashlib import sha1
@@ -8,8 +7,16 @@ from io import BytesIO
 from tempfile import TemporaryFile
 
 from legendary.models.chunk import Chunk
-from legendary.models.manifest import \
-    Manifest, ManifestMeta, CDL, FML, CustomFields, FileManifest, ChunkPart, ChunkInfo
+from legendary.models.manifest import (
+    CDL,
+    FML,
+    ChunkInfo,
+    ChunkPart,
+    CustomFields,
+    FileManifest,
+    Manifest,
+    ManifestMeta,
+)
 
 
 def _filename_matches(filename, patterns):

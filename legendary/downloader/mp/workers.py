@@ -1,23 +1,24 @@
-# coding: utf-8
 
+import logging
 import os
 import time
-import logging
-
 from logging.handlers import QueueHandler
 from multiprocessing import Process
 from multiprocessing.shared_memory import SharedMemory
 from queue import Empty
 
 import requests
-from requests.adapters import HTTPAdapter, DEFAULT_POOLBLOCK
+from requests.adapters import DEFAULT_POOLBLOCK, HTTPAdapter
 
 from legendary.lfs.wine_helpers import case_insensitive_file_search
 from legendary.models.chunk import Chunk
 from legendary.models.downloading import (
-    DownloaderTask, DownloaderTaskResult,
-    WriterTask, WriterTaskResult,
-    TerminateWorkerTask, TaskFlags
+    DownloaderTask,
+    DownloaderTaskResult,
+    TaskFlags,
+    TerminateWorkerTask,
+    WriterTask,
+    WriterTaskResult,
 )
 
 
@@ -36,8 +37,10 @@ class BindingHTTPAdapter(HTTPAdapter):
 
 class DLWorker(Process):
     def __init__(self, name, queue, out_queue, shm, max_retries=7,
-                 logging_queue=None, dl_timeout=10, bind_addr=None, secrets=dict()):
+                 logging_queue=None, dl_timeout=10, bind_addr=None, secrets=None):
         super().__init__(name=name)
+        if secrets is None:
+            secrets = dict()
         self.q = queue
         self.o_q = out_queue
         self.secrets = secrets
@@ -65,7 +68,7 @@ class DLWorker(Process):
 
         logger = logging.getLogger(self.name)
         logger.setLevel(self.log_level)
-        logger.debug(f'Download worker reporting for duty!')
+        logger.debug('Download worker reporting for duty!')
 
         empty = False
         while True:

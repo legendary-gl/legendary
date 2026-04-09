@@ -1,10 +1,10 @@
 # !/usr/bin/env python
-# coding: utf-8
 
 import logging
+from platform import system
+
 import requests
 
-from platform import system
 from legendary import __version__
 
 
