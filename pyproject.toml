@@ -10,7 +10,7 @@ dependencies = [
     "filelock",
     "pycryptodomex",
 ]
-requires-python = ">= 3.9"
+requires-python = ">= 3.10"
 authors = [
     {name = "Rodney", email = "rodney@rodney.io"}
 ]
@@ -20,7 +20,7 @@ license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 classifiers = [
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Microsoft",
     "Intended Audience :: End Users/Desktop",

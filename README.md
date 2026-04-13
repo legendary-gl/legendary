@@ -34,8 +34,8 @@ it has to be run from a terminal (e.g. PowerShell)
 
 - Linux, Windows (8.1+), or macOS (12.0+)
   + 32-bit operating systems are not supported
-- python 3.9+ (64-bit)
-  + (Windows) `pythonnet` is not yet compatible with 3.10+, use 3.9 if you plan to install `pywebview` 
+- python 3.10+ (64-bit)
+  + (Windows) `pythonnet` is not yet compatible with 3.14+
 - PyPI packages:
   + `requests`
   + (optional) `pywebview` for webview-based login
