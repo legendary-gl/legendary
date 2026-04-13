@@ -83,6 +83,8 @@ class MockLauncher:
         webbrowser.open(url)
 
     def set_exchange_code(self, exchange_code, param):
+        if param:
+            logger.warning(f'Unknown parameter provided: {param}. Please report it on GitHub')
         self.inject_js = False
         logger.debug('Got exchange code (stage 1)!')
         # The default Windows webview retains cookies, GTK/Qt do not. Therefore we can
