@@ -92,12 +92,14 @@ class Chunk:
         return self.stored_as & 0x2
 
     @classmethod
-    def read_buffer(cls, data, secrets):
+    def read_buffer(cls, data, secrets=None):
         _sio = BytesIO(data)
         return cls.read(_sio, secrets)
 
     @classmethod
-    def read(cls, bio, secrets=dict()):
+    def read(cls, bio, secrets=None):
+        if secrets is None:
+            secrets = dict()
         head_start = bio.tell()
 
         if struct.unpack('<I', bio.read(4))[0] != cls.header_magic:
