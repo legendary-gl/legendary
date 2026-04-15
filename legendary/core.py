@@ -499,6 +499,10 @@ class LegendaryCore:
             elif not any(i['path'] == 'mods' for i in game.metadata.get('categories', [])) and platform in app_assets:
                 _ret.append(game)
 
+        if meta_updated:
+            self.log.info('Updating entitlements.')
+            self.lgd.entitlements = self.egs.get_user_entitlements_full()
+
         self.update_aliases(force=meta_updated)
         if meta_updated:
             self._prune_metadata()

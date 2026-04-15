@@ -1652,7 +1652,7 @@ class LegendaryCLI:
             args.offline = True
 
         manifest_data = None
-        entitlements = None
+        entitlements = []
         is_preloaded = False
         manifest_secrets = dict()
         # load installed manifest or URI
@@ -1669,7 +1669,7 @@ class LegendaryCLI:
             else:
                 logger.info('Game not installed and offline mode enabled, cannot load manifest.')
         elif game:
-            entitlements = self.core.egs.get_user_entitlements_full()
+            entitlements = self.core.lgd.entitlements if self.core.lgd.entitlements else []
             egl_meta = self.core.egs.get_game_info(game.namespace, game.catalog_item_id)
             game.metadata = egl_meta
             # Get manifest if asset exists for current platform
@@ -1683,6 +1683,10 @@ class LegendaryCLI:
                                        game.app_version(args.platform)))
             all_versions = {k: v.build_version for k, v in game.asset_infos.items()}
             game_infos.append(InfoItem('All versions', 'platform_versions', all_versions, all_versions))
+            # Grant date from entitlements
+            entitlement = next((ent for ent in entitlements if ent['namespace'] == game.namespace), None)
+            grant_date = entitlement["grantDate"] if entitlement else game.metadata["creationDate"]
+            game_infos.append(InfoItem('Grant date', 'grant_date', grant_date, grant_date))
             # Cloud save support for Mac and Windows
             game_infos.append(InfoItem('Cloud saves supported', 'cloud_saves_supported',
                                        game.supports_cloud_saves or game.supports_mac_cloud_saves,
