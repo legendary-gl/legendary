@@ -2066,7 +2066,7 @@ class LegendaryCLI:
             redeemed = {k['gameId'] for k in key_list if k['redeemedOnUplay']}
 
             games = self.core.get_game_list()
-            entitlements = self.core.egs.get_user_entitlements_full()
+            entitlements = self.core.lgd.entitlements if self.core.lgd.entitlements else []
             owned_entitlements = {i['entitlementName'] for i in entitlements}
 
             uplay_games = []
