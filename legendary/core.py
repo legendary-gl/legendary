@@ -360,6 +360,11 @@ class LegendaryCore:
                 ]
             })
 
+            # only get entitlements if there was an asset update
+            if self.lgd.assets != assets or not self.lgd.entitlements:
+                self.log.info('Updating entitlements.')
+                self.lgd.entitlements = self.egs.get_user_entitlements_full()
+
             # only save (and write to disk) if there were changes
             if self.lgd.assets != assets:
                 self.lgd.assets = assets
@@ -498,10 +503,6 @@ class LegendaryCore:
                 _dlc[game.metadata['mainGameItem']['id']].append(game)
             elif not any(i['path'] == 'mods' for i in game.metadata.get('categories', [])) and platform in app_assets:
                 _ret.append(game)
-
-        if meta_updated:
-            self.log.info('Updating entitlements.')
-            self.lgd.entitlements = self.egs.get_user_entitlements_full()
 
         self.update_aliases(force=meta_updated)
         if meta_updated:
