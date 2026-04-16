@@ -1734,7 +1734,7 @@ class LegendaryCLI:
             # list all owned DLC based on entitlements
             if entitlements and not game.is_dlc:
                 owned_entitlements = {i['entitlementName'] for i in entitlements}
-                owned_app_names = {g.app_name for g in self.core.get_assets(args.platform)}
+                owned_app_names = {g.app_name for g in self.core.get_assets(platform=args.platform)}
                 owned_dlc = []
                 for dlc in game.metadata.get('dlcItemList', []):
                     installable = dlc.get('releaseInfo', None)
