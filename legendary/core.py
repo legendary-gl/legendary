@@ -829,6 +829,27 @@ class LegendaryCore:
             parameters.extend(parse_qsl(extra_args))
 
         return f'link2ea://launchgame/{app_name}?{urlencode(parameters)}'
+    
+    def get_ubisoft_uri(self, app_name: str, offline: bool = False) -> str:
+        token = '0' if offline else self.egs.get_game_token()['code']
+
+        user_name = self.lgd.userdata['displayName']
+        account_id = self.lgd.userdata['account_id']
+        parameters = [
+            ('AUTH_PASSWORD', token),
+            ('AUTH_TYPE', 'exchangecode'),
+            ('epicusername', user_name),
+            ('epicuserid', account_id),
+            ('epiclocale', self.language_code),
+        ]
+
+        game = self.get_game(app_name)
+        game_id = game.metadata.get('customAttributes', {}).get('GameID', {}).get('value') or app_name
+        extra_args = game.metadata.get('customAttributes', {}).get('AdditionalCommandline', {}).get('value')
+        if extra_args:
+            parameters.extend(parse_qsl(extra_args))
+
+        return f'uplay://launch/{game_id}?{urlencode(parameters)}'
 
     def get_save_games(self, app_name: str = ''):
         savegames = self.egs.get_user_cloud_saves(app_name, manifests=not not app_name)

@@ -86,6 +86,10 @@ class Game:
         return self.metadata and 'mainGameItem' in self.metadata
 
     @property
+    def is_ubisoft_game(self) -> bool:
+        return self.third_party_store and self.third_party_store.lower() in ['ubisoftconnect']
+
+    @property
     def is_origin_game(self) -> bool:
         return self.third_party_store and self.third_party_store.lower() in ['origin', 'the ea app']
 
@@ -93,7 +97,7 @@ class Game:
     def third_party_store(self) -> Optional[str]:
         if not self.metadata:
             return None
-        return self.metadata.get('customAttributes', {}).get('ThirdPartyManagedApp', {}).get('value', None)
+        return self.metadata.get('customAttributes', {}).get('ThirdPartyManagedApp', {}).get('value', None) or self.metadata.get('customAttributes', {}).get('ThirdPartyManagedProvider', {}).get('value', None)
 
     @property
     def partner_link_type(self):

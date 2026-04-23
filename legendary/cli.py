@@ -579,9 +579,9 @@ class LegendaryCLI:
             args.reset = args.download = args.disable_version_check = False
             self.crossover_setup(args)
 
-        if args.origin:
-            return self._launch_origin(args)
-
+        if args.origin or args.ubisoft:
+            return self._launch_third_party(args)
+        
         igame = self.core.get_installed_game(app_name)
         if (not igame or not igame.executable) and (game := self.core.get_game(app_name)) is not None:
             # override installed game with base title
@@ -719,15 +719,15 @@ class LegendaryCLI:
                     f'{k}={v}' for k, v in params.environment.items())))
             subprocess.Popen(full_params, cwd=params.working_directory, env=full_env)
 
-    def _launch_origin(self, args):
+    def _launch_third_party(self, args):
         game = self.core.get_game(app_name=args.app_name)
         if not game:
             logger.error(f'Unknown game "{args.app_name}", run "legendary list-games --third-party" '
                          f'to fetch data for Origin titles before using this command.')
             return
 
-        if not game.is_origin_game:
-            logger.error(f'The specified game is not an Origin title.')
+        if not game.is_origin_game and not game.is_ubisoft_game:
+            logger.error(f'The specified game is not an Origin or Ubisoft title.')
             return
 
         # login is not required to launch the game, but linking does require it.
@@ -737,9 +737,10 @@ class LegendaryCLI:
                 logger.error('Login failed, cannot continue!')
                 exit(1)
 
-        origin_uri = self.core.get_origin_uri(args.app_name, args.offline)
+        uri = self.core.get_origin_uri(args.app_name, args.offline) if game.is_origin_game else self.core.get_ubisoft_uri(args.app_name, args.offline)
         if args.json:
-            return self._print_json(dict(uri=origin_uri), args.pretty_json)
+            self._print_json(dict(uri=uri), args.pretty_json)
+            return
 
         if os.name == 'nt':
             cmd, wait_for_exit = self.core.get_pre_launch_command(args.app_name)
@@ -747,7 +748,7 @@ class LegendaryCLI:
             if args.dry_run:
                 if cmd:
                     logger.info(f'Pre-launch command: {cmd}')
-                logger.info(f'Origin URI: {origin_uri}')
+                logger.info(f'URI: {uri}')
             else:
                 if cmd:
                     try:
@@ -759,8 +760,8 @@ class LegendaryCLI:
                     except Exception as e:
                         logger.warning(f'Pre-launch command failed: {e!r}')
 
-                logger.debug(f'Opening Origin URI: {origin_uri}')
-                webbrowser.open(origin_uri)
+                logger.debug(f'Opening URI: {uri}')
+                webbrowser.open(uri)
             return
 
         # on linux, require users to specify at least the wine binary and prefix in config or command line
@@ -791,17 +792,17 @@ class LegendaryCLI:
                 logger.info(f'Using CrossOver Bottle "{bottle_name}"')
 
         if not command:
-            logger.error(f'In order to launch Origin correctly you must specify a prefix and wine binary or '
+            logger.error(f'In order to launch correctly you must specify a prefix and wine binary or '
                          f'wrapper in the configuration file or command line. See the README for details.')
             return
 
         # You cannot launch a URI without start.exe
         command.append('start')
-        command.append(origin_uri)
+        command.append(uri)
         if args.dry_run:
             if cmd:
                 logger.info(f'Pre-launch command: {cmd}')
-            logger.info(f'Origin launch command: {shlex.join(command)}')
+            logger.info(f'Launch command: {shlex.join(command)}')
         else:
             if cmd:
                 try:
@@ -813,7 +814,7 @@ class LegendaryCLI:
                 except Exception as e:
                     logger.warning(f'Pre-launch command failed: {e!r}')
 
-            logger.debug(f'Opening Origin URI with command: {shlex.join(command)}')
+            logger.debug(f'Opening URI with command: {shlex.join(command)}')
             subprocess.Popen(command, env=full_env)
 
     def install_game(self, args):
@@ -2841,6 +2842,8 @@ def main():
                                help='Override executable to launch (relative path)')
     launch_parser.add_argument('--origin', dest='origin', action='store_true',
                                help='Launch Origin to activate or run the game.')
+    launch_parser.add_argument('--ubisoft', dest='ubisoft', action='store_true',
+                               help='Launch Ubisoft to install and run the game.')
     launch_parser.add_argument('--json', dest='json', action='store_true',
                                help='Print launch information as JSON and exit')
 
