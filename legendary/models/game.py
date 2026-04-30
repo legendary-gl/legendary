@@ -83,15 +83,15 @@ class Game:
 
     @property
     def is_dlc(self):
-        return self.metadata and 'mainGameItem' in self.metadata
+        return self.metadata is not None and 'mainGameItem' in self.metadata
 
     @property
     def is_ubisoft_game(self) -> bool:
-        return self.third_party_store and self.third_party_store.lower() in ['ubisoftconnect']
+        return self.third_party_store is not None and self.third_party_store.lower() in ['ubisoftconnect']
 
     @property
     def is_origin_game(self) -> bool:
-        return self.third_party_store and self.third_party_store.lower() in ['origin', 'the ea app']
+        return self.third_party_store is not None and self.third_party_store.lower() in ['origin', 'the ea app']
 
     @property
     def third_party_store(self) -> Optional[str]:
@@ -113,11 +113,11 @@ class Game:
 
     @property
     def supports_cloud_saves(self):
-        return self.metadata and (self.metadata.get('customAttributes', {}).get('CloudSaveFolder') is not None)
+        return self.metadata is not None and (self.metadata.get('customAttributes', {}).get('CloudSaveFolder') is not None)
 
     @property
     def supports_mac_cloud_saves(self):
-        return self.metadata and (self.metadata.get('customAttributes', {}).get('CloudSaveFolder_MAC') is not None)
+        return self.metadata is not None and (self.metadata.get('customAttributes', {}).get('CloudSaveFolder_MAC') is not None)
 
     @property
     def additional_command_line(self):
