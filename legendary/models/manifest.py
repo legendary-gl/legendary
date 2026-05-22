@@ -138,7 +138,8 @@ class Manifest:
         _m.chunk_data_list = CDL.read(_tmp, _m.meta.feature_level)
         _m.file_manifest_list = FML.read(_tmp)
         _m.custom_fields = CustomFields.read(_tmp)
-        _m.encrypted_data = EncryptedData.read(_tmp, _m.meta.feature_level)
+        if _m.encrypted:
+            _m.encrypted_data = EncryptedData.read(_tmp, _m.meta.feature_level)
 
         if unhandled_data := _tmp.read():
             logger.warning(f'Did not read {len(unhandled_data)} remaining bytes in manifest! '
@@ -212,7 +213,7 @@ class Manifest:
         self.chunk_data_list.write(body_bio)
         self.file_manifest_list.write(body_bio)
         self.custom_fields.write(body_bio)
-        if target_version >= 22:
+        if target_version >= 22 and self.encrypted_data is not None:
             self.encrypted_data.write(body_bio)
 
         self.data = body_bio.getvalue()
@@ -596,11 +597,13 @@ class ChunkInfo:
     @property
     def path(self):
         if self._manifest_version >= 22:
+            guid_invalid = self.secret_guid[0] == self.secret_guid[1] == self.secret_guid[2] == self.secret_guid[3] == 0
             secret_b64 = base64.urlsafe_b64encode(struct.pack('<IIII', *self.secret_guid)).decode().strip('=')
+            secret_part = secret_b64 if not guid_invalid else 'plain'
             hash_b64 = base64.urlsafe_b64encode(struct.pack('<Q', self.hash)).decode().strip('=')
             guid_b64 = base64.urlsafe_b64encode(struct.pack('<IIII', *self.guid)).decode().strip('=')
             return '{}/{}/{:02d}/{}_{}.chunk'.format(
-                get_chunk_dir(self._manifest_version), secret_b64,
+                get_chunk_dir(self._manifest_version), secret_part,
                 self.group_num, hash_b64, guid_b64)
         return '{}/{:02d}/{:016X}_{}.chunk'.format(
             get_chunk_dir(self._manifest_version), self.group_num,
