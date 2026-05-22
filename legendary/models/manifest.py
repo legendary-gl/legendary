@@ -597,7 +597,7 @@ class ChunkInfo:
     @property
     def path(self):
         if self._manifest_version >= 22:
-            guid_invalid = self.secret_guid[0] == self.secret_guid[1] == self.secret_guid[2] == self.secret_guid[3] == 0
+            guid_invalid = self.secret_guid is None or self.secret_guid == (0,0,0,0)
             secret_b64 = base64.urlsafe_b64encode(struct.pack('<IIII', *self.secret_guid)).decode().strip('=')
             secret_part = secret_b64 if not guid_invalid else 'plain'
             hash_b64 = base64.urlsafe_b64encode(struct.pack('<Q', self.hash)).decode().strip('=')
