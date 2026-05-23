@@ -10,6 +10,7 @@ import shlex
 import subprocess
 import time
 import webbrowser
+import re
 
 from collections import defaultdict, namedtuple
 from logging.handlers import QueueListener
@@ -2642,6 +2643,58 @@ class LegendaryCLI:
         self.core.install_game(igame)
         logger.info('Finished.')
 
+    def eula(self, args):
+        if not self.core.login():
+            logger.error('Login failed! Unable to check for EULAs.')
+            exit(1)
+        app_name = self._resolve_aliases(args.app_name)
+        game = self.core.get_game(app_name, update_meta=True)
+        if not game:
+            self.logger.error(f'No game found for "{app_name}"')
+            return
+        eulas = game.metadata.get('eulaIds') or ['$']
+
+        pattern = r'\w+'
+        keys = []
+        for eula in eulas:
+            keys += re.findall(pattern, eula)
+
+        not_accepted_eulas = []
+        for key in keys:
+            if args.skip_epic and key == 'egstore':
+                continue
+            self.logger.debug(f'Fetching eula status for "{key}"')
+            eula = self.core.egs.eula_get_status(key)
+            if eula:
+                not_accepted_eulas.append(eula)
+
+        accepted = False
+
+        if not args.json:
+            for eula in not_accepted_eulas:
+                title = eula.get('title')
+                url = eula.get('url')
+                print(f' * {title} - {url}')
+            print(f'EULA(s) to accept: {len(not_accepted_eulas)}')
+            if not_accepted_eulas:
+                accepted = args.yes or get_boolean_choice('Mark them as accepted?')
+        else:
+            json_out = not_accepted_eulas
+            self._print_json(json_out, args.pretty_json)
+            accepted = args.yes
+
+        if accepted:
+            for eula in not_accepted_eulas:
+                key = eula.get('key')
+                version = eula.get('version')
+                locale = eula.get('locale')
+                self.logger.debug(f'Accepting "{key}" version {version}')
+                try:
+                    self.core.egs.eula_accept(key, version, locale)
+                except Exception as e:
+                    self.logger.error(f"Failed to accept EULA {key} {e!r}")
+                    return
+
 
 def main():
     # Set output encoding to UTF-8 if not outputting to a terminal
@@ -2696,6 +2749,7 @@ def main():
     uninstall_parser = subparsers.add_parser('uninstall', help='Uninstall (delete) a game')
     verify_parser = subparsers.add_parser('verify', help='Verify a game\'s local files',
                                           aliases=('verify-game',), hide_aliases=True)
+    eula_parser = subparsers.add_parser('eula', help='Check for unaccepted EULA(s) of a given game')
 
     # hidden commands have no help text
     get_token_parser = subparsers.add_parser('get-token')
@@ -3031,6 +3085,12 @@ def main():
     move_parser.add_argument('--skip-move', dest='skip_move', action='store_true',
                              help='Only change legendary database, do not move files (e.g. if already moved)')
 
+    eula_parser.add_argument('app_name', metavar='<App Name>', help='Name of the app')
+    eula_parser.add_argument('--skip-epic', dest='skip_epic', action='store_true',
+                                  help='Skip checking for egstore EULA')
+    eula_parser.add_argument('--json', dest='json', action='store_true',
+                                  help='Output information in JSON format')
+
     args, extra = parser.parse_known_args()
 
     if args.version:
@@ -3131,6 +3191,8 @@ def main():
             cli.crossover_setup(args)
         elif args.subparser_name == 'move':
             cli.move(args)
+        elif args.subparser_name == 'eula':
+            cli.eula(args)
     except KeyboardInterrupt:
         logger.info('Command was aborted via KeyboardInterrupt, cleaning up...')
 

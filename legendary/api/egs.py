@@ -24,6 +24,7 @@ class EPCAPI:
     _oauth_host = 'account-public-service-prod03.ol.epicgames.com'
     _launcher_host = 'launcher-public-service-prod06.ol.epicgames.com'
     _entitlements_host = 'entitlement-public-service-prod08.ol.epicgames.com'
+    _eulatracking_host = 'eulatracking-public-service-prod06.ol.epicgames.com'
     _catalog_host = 'catalog-public-service-prod06.ol.epicgames.com'
     _ecommerce_host = 'ecommerceintegration-public-service-ecomprod02.ol.epicgames.com'
     _datastorage_host = 'datastorage-public-service-liveegs.live.use1a.on.epicgames.com'
@@ -310,3 +311,23 @@ class EPCAPI:
                               timeout=self.request_timeout)
         r.raise_for_status()
         return r.json()
+
+    def eula_get_status(self, eula_id):
+        user_id = self.user.get('account_id')
+        r = self.session.get(f'https://{self._eulatracking_host}/eulatracking/api/public/agreements/{eula_id}/account/{user_id}', 
+                             params=dict(locale=self.language_code))
+
+        if r.status_code == 204:
+            return None
+        r.raise_for_status()
+        return r.json()
+
+    def eula_accept(self, eula_id, version, locale=None):
+        user_id = self.user.get('account_id')
+        locale = locale or self.language_code
+        r = self.session.post(f'https://{self._eulatracking_host}/eulatracking/api/public/agreements/{eula_id}/version/{version}/account/{user_id}/accept',
+                              params=dict(locale=locale))
+        
+        r.raise_for_status()
+
+
