@@ -717,10 +717,7 @@ class LegendaryCLI:
             if params.environment:
                 logger.debug('Environment overrides: {}'.format(', '.join(
                     f'{k}={v}' for k, v in params.environment.items())))
-            use_shell = False
-            if os.name == 'nt':
-                use_shell = True
-            subprocess.Popen(full_params, cwd=params.working_directory, env=full_env, shell=use_shell)
+            subprocess.Popen(full_params, cwd=params.working_directory, env=full_env, shell=os.name == 'nt')
 
     def _launch_third_party(self, args):
         game = self.core.get_game(app_name=args.app_name)
