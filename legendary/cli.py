@@ -2651,7 +2651,7 @@ class LegendaryCLI:
 
     def achievements(self, args):
         if not self.core.login():
-            logger.error('Login failed! Unable to check for EULAs.')
+            logger.error('Login failed! Unable to check for Achievements.')
             exit(1)
 
         app_name = self._resolve_aliases(args.app_name)

@@ -329,6 +329,12 @@ class LegendaryCore:
         return self.lgd.achievements[namespace]
 
     def get_achievements(self, game: Game, update: bool = False):
+        if update or game.achievements is None:
+            self.log.debug(f'Fetching achievement data for {game.app_name} on demand...')
+            achievements_api_response = self.egs.get_game_achievements(game.namespace)
+            game.achievements = Achievements.from_egs_json(achievements_api_response)
+            self.lgd.set_game_meta(game.app_name, game)
+
         if not game.achievements.achievements:
             return None
 
@@ -525,16 +531,15 @@ class LegendaryCore:
                 continue
 
             game = self.lgd.get_game_meta(app_name)
-            asset_updated = sidecar_updated = achievements_updated = False
+            asset_updated = sidecar_updated = False
             if game:
                 asset_updated = any(game.app_version(_p) != app_assets[_p].build_version for _p in app_assets.keys())
                 # assuming sidecar data is the same for all platforms, just check the baseline (Windows) for updates.
                 sidecar_updated = (app_assets['Windows'].sidecar_rev > 0 and
                                    (not game.sidecar or game.sidecar.rev != app_assets['Windows'].sidecar_rev))
-                achievements_updated = not game.achievements or asset_updated
                 games[app_name] = game
 
-            if update_assets and (not game or force_refresh or (game and (asset_updated or sidecar_updated or achievements_updated))):
+            if update_assets and (not game or force_refresh or (game and (asset_updated or sidecar_updated))):
                 self.log.debug(f'Scheduling metadata update for {app_name}')
                 # namespace/catalog item are the same for all platforms, so we can just use the first one
                 _ga = next(iter(app_assets.values()))
@@ -558,10 +563,10 @@ class LegendaryCore:
                     sidecar_json = json.loads(manifest_info['sidecar']['config'])
                     sidecar = Sidecar(config=sidecar_json, rev=manifest_info['sidecar']['rvn'])
 
-            self.log.debug(f'Updating achivement information for {app_name}...')
-            achievements_api_response = self.egs.get_game_achievements(namespace)
-            achievements = Achievements.from_egs_json(achievements_api_response)
-
+            # Preserve any previously cached achievements; they are fetched on demand in get_achievements()
+            existing_game = games.get(app_name)
+            achievements = existing_game.achievements if existing_game else None
+           
             game = Game(app_name=app_name, app_title=eg_meta['title'], metadata=eg_meta, asset_infos=assets[app_name],
                         sidecar=sidecar, achievements=achievements)
             self.lgd.set_game_meta(game.app_name, game)
