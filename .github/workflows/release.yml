@@ -62,8 +62,7 @@ jobs:
             done
           done
 
-      - uses: softprops/action-gh-release@v3
-        with:
-          draft: true
-          generate_release_notes: true
-          files: dist/legendary*
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" --repo "${{ github.server_url }}/${{ github.repository }}" --draft --generate-notes --verify-tag ./dist/legendary*
