@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags: [ '*.*.*' ]
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-base.yml
+
+  pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    env:
+      UV_SYSTEM_PYTHON: 1
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Build
+        run: uv build
+
+      - name: Publish
+        run: uv publish
+
+  release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-slim
+    needs: [build, pypi]
+    steps:
+      - name: Download builds
+        uses: actions/download-artifact@v8
+
+      - name: Setup distribution dir
+        run: mkdir dist
+
+      - name: Copy binaries
+        run: |
+          oses=("Linux" "macOS" "Windows")
+          arches=("X64" "ARM64")
+          for os in ${oses[@]}; do
+            for arch in ${arches[@]}; do
+                file="./$os-$arch-package/legendary"*
+                if [ -f $file ]; then
+                    filename=$(basename $file)
+                    ext=${filename#*.}
+                    if [[ "$ext" == "$filename" ]]; then
+                        ext=""
+                    else
+                        ext=".$ext"
+                    fi
+                    cp $file "./dist/legendary_${os,}_${arch,,}$ext"
+                fi
+            done
+          done
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          generate_release_notes: true
+          files: dist/legendary*

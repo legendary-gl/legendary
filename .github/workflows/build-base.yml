@@ -1,0 +1,97 @@
+name: Build Base
+
+on:
+  workflow_call:
+
+jobs:
+  pyinstaller:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [
+          'windows-2025', 'windows-11-arm',
+          'macos-15-intel', 'macos-15'
+        ]
+      fail-fast: false
+    env:
+      UV_SYSTEM_PYTHON: 1
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version-file: "pyproject.toml"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Dependencies and build tools
+      run: uv sync --extra pyinstaller_build --no-install-local
+
+    - name: Optional dependencies (WebView)
+      run: uv sync --extra webview --no-install-local --inexact
+      if: runner.os != 'macOS'
+
+    - name: Set strip option on non-Windows
+      id: strip
+      run: echo "option=--strip" >> $GITHUB_OUTPUT
+      if: runner.os != 'Windows'
+
+    - name: Build
+      working-directory: legendary
+      run: uv run --module PyInstaller
+        --onefile
+        --name legendary
+        ${{ steps.strip.outputs.option }}
+        -i ../assets/windows_icon.ico
+        cli.py
+      env:
+        PYTHONOPTIMIZE: 1
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: ${{ runner.os }}-${{ runner.arch }}-package
+        path: legendary/dist/*
+
+  zipapp:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [
+          'ubuntu-24.04', 'ubuntu-24.04-arm'
+        ]
+      fail-fast: false
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version-file: "pyproject.toml"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - run: mkdir -p build dist
+
+    - name: Dependencies
+      run: uv export --format requirements.txt --no-editable | uv pip install --requirement - --target build
+
+    - run: cp zipapp_main.py build/__main__.py
+
+    - name: Build
+      run: python -m zipapp
+        --output dist/legendary
+        --python "/usr/bin/env python3"
+        --compress
+        build
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: ${{ runner.os }}-${{ runner.arch }}-package
+        path: dist/legendary
