@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "legendary-gl"
-version = "0.20.35"
+version = "0.21.0"
 dependencies = [
     "requests",
     "filelock",
