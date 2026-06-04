@@ -62,6 +62,10 @@ jobs:
             done
           done
 
+      - name: Package macOS zip
+        working-directory: dist
+        run: 7z a legendary_macOS.zip legendary_macOS_*
+
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
