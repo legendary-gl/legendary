@@ -242,7 +242,7 @@ class LegendaryCLI:
             writer.writerow(['App name', 'App title', 'Version', 'Is DLC'])
             for game in games:
                 writer.writerow((game.app_name, game.app_title, game.app_version(args.platform), False))
-                for dlc in dlc_list[game.catalog_item_id]:
+                for dlc in dlc_list.get(game.catalog_item_id, []):
                     writer.writerow((dlc.app_name, dlc.app_title, dlc.app_version(args.platform), True))
             return
 
@@ -250,7 +250,7 @@ class LegendaryCLI:
             _out = []
             for game in games:
                 _j = vars(game)
-                _j['dlcs'] = [vars(dlc) for dlc in dlc_list[game.catalog_item_id]]
+                _j['dlcs'] = [vars(dlc) for dlc in dlc_list.get(game.catalog_item_id, [])]
                 _out.append(_j)
 
             return self._print_json(_out, args.pretty_json)
@@ -281,7 +281,7 @@ class LegendaryCLI:
                 else:
                     print(f'  ! This app requires linking to a third-party account (name: "{_type}", not supported)')
 
-            for dlc in dlc_list[game.catalog_item_id]:
+            for dlc in dlc_list.get(game.catalog_item_id, []):
                 print(f'  + {dlc.app_title} (App name: {dlc.app_name} | Version: {dlc.app_version(args.platform)})')
                 if not dlc.app_version(args.platform):
                     print(f'   ! This DLC is either included in the base game, or not available for {args.platform}')

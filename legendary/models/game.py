@@ -170,13 +170,13 @@ class Game:
     def catalog_item_id(self):
         if not self.metadata:
             return None
-        return self.metadata['id']
+        return self.metadata.get('id')
 
     @property
     def namespace(self):
         if not self.metadata:
             return None
-        return self.metadata['namespace']
+        return self.metadata.get('namespace')
 
     @classmethod
     def from_json(cls, json):
