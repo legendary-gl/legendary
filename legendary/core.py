@@ -586,7 +586,7 @@ class LegendaryCore:
                     sidecar_json = json.loads(manifest_info['sidecar']['config'])
                     sidecar = Sidecar(config=sidecar_json, rev=manifest_info['sidecar']['rvn'])
 
-            self.log.debug(f'Updating achivement information for {app_name}...')
+            self.log.debug(f'Updating achievement information for {app_name}...')
             achievements_api_response = self.egs.get_game_achievements(namespace)
             achievements = Achievements.from_egs_json(achievements_api_response)
 
