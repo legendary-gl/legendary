@@ -1,6 +1,7 @@
 import configparser
 import logging
 import os
+import sys
 
 logger = logging.getLogger('WineHelpers')
 
@@ -23,8 +24,11 @@ def get_shell_folders(registry, wine_pfx):
 def case_insensitive_file_search(path: str) -> str:
     """
     Similar to case_insensitive_path_search: Finds a file case-insensitively
-    Note that this *does* work on Windows, although it's rather pointless
+    No-op on Windows
     """
+    if sys.platform == 'win32':
+        return path
+
     if os.path.exists(path):
         return path
 
