@@ -836,7 +836,7 @@ class LegendaryCLI:
                     logger.warning(f'Pre-launch command failed: {e!r}')
 
             logger.debug(f'Opening URI with command: {shlex.join(command)}')
-            subprocess.Popen(command, env=full_env)
+            subprocess.Popen(command, env=full_env, cwd=full_env.get('WINEPREFIX', None))
 
     def install_game(self, args):
         if not self.core.lgd.lock_installed():
