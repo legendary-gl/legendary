@@ -344,6 +344,10 @@ class DLManager(Process):
             # skip unchanged and empty files
             if current_file.filename in mc.unchanged:
                 continue
+            elif current_file.symlink_target:
+                self.tasks.append(FileTask(current_file.filename, old_file=current_file.symlink_target,
+                                           flags=TaskFlags.CREATE_SYMLINK))
+                continue
             elif not current_file.chunk_parts:
                 self.tasks.append(FileTask(current_file.filename, flags=TaskFlags.CREATE_EMPTY_FILE))
                 continue

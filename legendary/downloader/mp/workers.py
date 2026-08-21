@@ -207,6 +207,29 @@ class FileWorker(Process):
                     open(full_path, 'a').close()
                     self.o_q.put(WriterTaskResult(success=True, **j.__dict__))
                     continue
+                if j.flags & TaskFlags.CREATE_SYMLINK:
+                    if current_file:
+                        logger.warning('Trying to create symlink without closing first!')
+                        current_file.close()
+                        current_file = None
+
+                    try:
+                        os.symlink(j.old_file, full_path)
+                    except FileExistsError:
+                        try:
+                            os.remove(full_path)
+                            os.symlink(j.old_file, full_path)
+                        except OSError as e:
+                            logger.error(f'Creating symlink failed: {e!r}')
+                            self.o_q.put(WriterTaskResult(success=False, **j.__dict__))
+                            continue
+                    except OSError as e:
+                        logger.error(f'Creating symlink failed: {e!r}')
+                        self.o_q.put(WriterTaskResult(success=False, **j.__dict__))
+                        continue
+
+                    self.o_q.put(WriterTaskResult(success=True, **j.__dict__))
+                    continue
                 elif j.flags & TaskFlags.OPEN_FILE:
                     if current_file:
                         logger.warning(f'Opening new file {j.filename} without closing previous! {last_filename}')
