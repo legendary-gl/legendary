@@ -741,7 +741,9 @@ class LegendaryCLI:
             if params.environment:
                 logger.debug('Environment overrides: {}'.format(', '.join(
                     f'{k}={v}' for k, v in params.environment.items())))
-            subprocess.Popen(full_params, cwd=params.working_directory, env=full_env, shell=os.name == 'nt')
+            subprocess.Popen(full_params, cwd=params.working_directory, env=full_env,
+                             shell=os.name == 'nt',
+                             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' and args.hidden else 0)
 
     def _launch_third_party(self, args):
         game = self.core.get_game(app_name=args.app_name)
@@ -2920,6 +2922,8 @@ def main():
                                help='Launch Ubisoft to install and run the game.')
     launch_parser.add_argument('--json', dest='json', action='store_true',
                                help='Print launch information as JSON and exit')
+    launch_parser.add_argument('--hidden', dest='hidden', action='store_true',
+                               help='Hide the console for the launched game on Windows')
 
     if os.name != 'nt':
         launch_parser.add_argument('--wine', dest='wine_bin', action='store', metavar='<wine binary>',
