@@ -1,14 +1,18 @@
-
+import base64
 import hashlib
 import json
 import logging
 import os
 import shutil
 from collections.abc import Iterator
+from contextlib import suppress
 from pathlib import Path
 from sys import stdout
 from time import perf_counter
 
+import keyring
+from Cryptodome.Cipher import AES
+from Cryptodome.Util.Padding import pad, unpad
 from filelock import FileLock
 
 from legendary.lfs.wine_helpers import case_insensitive_file_search
@@ -165,14 +169,82 @@ def clean_filename(filename):
 def get_dir_size(path):
     return sum(f.stat().st_size for f in Path(path).glob('**/*') if f.is_file())
 
+def get_service_for_keyring(current_user_info):
+    service_name = "legendary"
+    if os.name == 'nt':
+        service_name = f"legendary/{current_user_info['account_id']}"
+    return service_name
+
+def remove_encryption_key(current_user_info):
+    with suppress(keyring.errors.PasswordDeleteError):
+        keyring.delete_password(get_service_for_keyring(current_user_info), current_user_info['account_id'])
+
+def get_encryption_key(current_user_info):
+    final_key = ""
+    key = ""
+    try:
+        key = keyring.get_password(get_service_for_keyring(current_user_info), current_user_info['account_id'])
+    except Exception:
+        if current_user_info['account_id'] is not None and current_user_info["key"] is not None:
+            final_key = hashlib.sha256((current_user_info['account_id'] + current_user_info["key"]).encode("utf-8")).digest()
+    if key is not None and final_key == "":
+        final_key = base64.b64decode(key.encode('utf-8'))
+    return final_key
+
+def decrypt_file(path, current_user_info):
+    try:
+        key = get_encryption_key(current_user_info)
+        if key is None or len(key) != 32:
+            return ""
+        encrypted_data = None
+        with open(path, "rb") as encrypted_file_content:
+            encrypted_data = encrypted_file_content.read()
+        iv_cipher = AES.new(key, AES.MODE_ECB)
+        iv = iv_cipher.decrypt(encrypted_data[:16])
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        decrypted_data = unpad(cipher.decrypt(encrypted_data[16:]), AES.block_size).decode("utf-8")
+        json_decrypted_data = json.loads(decrypted_data)
+    except Exception as ex:
+        logger.warn(f'Failed to decrypt data with {ex!r}')
+        decrypted_data = None
+        json_decrypted_data = None
+    return json_decrypted_data
+
+def encrypt_to_file(path, current_user_info, data, store_key_file=False):
+    final_encryption_key = get_encryption_key(current_user_info)
+    if not final_encryption_key:
+        encryption_key = base64.b64encode(os.urandom(32)).decode("utf-8")
+        if not store_key_file:
+            try:
+                service_name = get_service_for_keyring(current_user_info)
+                k_backend = keyring.core.get_keyring()
+                if os.name == 'nt':
+                    k_backend.persist = 'local machine'
+                if service_name is not None:
+                    k_backend.set_password(service_name, current_user_info['account_id'], encryption_key)
+            except Exception:
+                store_key_file = True
+    if store_key_file:
+        current_user_info['key'] = encryption_key
+    final_encryption_key = get_encryption_key(current_user_info)
+    iv_cipher = AES.new(final_encryption_key, AES.MODE_ECB)
+    cipher = AES.new(final_encryption_key, AES.MODE_CBC)
+    input_data = json.dumps(data).encode('utf-8')
+    encrypted_data = cipher.encrypt(pad(input_data, AES.block_size))
+    encrypted_iv = iv_cipher.encrypt(cipher.iv)
+    with open(path, 'wb') as f:
+        f.write(encrypted_iv + encrypted_data)
+    return current_user_info
+
 
 class LockedJSONData(FileLock):
-    def __init__(self, lock_file: str):
+    def __init__(self, lock_file: str, save_changes: bool = True):
         super().__init__(lock_file + '.lock')
 
         self._file_path = lock_file
         self._data = None
         self._initial_data = None
+        self._save_changes = save_changes
 
     def __enter__(self):
         super().__enter__()
@@ -186,7 +258,8 @@ class LockedJSONData(FileLock):
     def __exit__(self, exc_type, exc_val, exc_tb):
         super().__exit__(exc_type, exc_val, exc_tb)
 
-        if self._data != self._initial_data:
+        
+        if self._data != self._initial_data and self._save_changes:
             if self._data is not None:
                 with open(self._file_path, 'w', encoding='utf-8') as f:
                     json.dump(self._data, f, indent=2, sort_keys=True)
