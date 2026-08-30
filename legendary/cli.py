@@ -973,6 +973,14 @@ class LegendaryCLI:
                     logger.error(f'Unable to get SDL data for {sdl_name}')
             else:
                 args.install_tag = config_tags.split(',')
+                # config tags are from install time, Epic may have added required tags since then
+                sdl_data = self.core.get_sdl_data(sdl_name, platform=args.platform)
+                if sdl_data and '__required' in sdl_data:
+                    new_tags = [t for t in sdl_data['__required']['tags'] if t not in args.install_tag]
+                    if new_tags:
+                        logger.info(f'Adding new required install tags: {", ".join(t for t in new_tags if t)}')
+                        args.install_tag.extend(new_tags)
+                        self.core.lgd.config.set(game.app_name, 'install_tags', ','.join(args.install_tag))
         elif args.install_tag and not game.is_dlc and not args.no_install:
             config_tags = ','.join(args.install_tag)
             logger.info(f'Saving install tags for "{game.app_name}" to config: {config_tags}')
