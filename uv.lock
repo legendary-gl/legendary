@@ -194,7 +194,7 @@ wheels = [
 
 [[package]]
 name = "legendary-gl"
-version = "0.20.35"
+version = "0.21.1"
 source = { editable = "." }
 dependencies = [
     { name = "filelock" },
