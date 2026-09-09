@@ -550,7 +550,8 @@ optional arguments:
   --tsv                 List games in TSV format
   --json                List games in JSON format
   --force-refresh       Force a refresh of all game metadata
-
+  -s <query>, --search <query>
+                        Filter results by title or app name (fuzzy, case-insensitive)
 
 Command: list-files
 usage: legendary list-files [-h] [--force-download] [--platform <Platform>]
@@ -586,7 +587,8 @@ optional arguments:
   --tsv            List games in TSV format
   --json           List games in JSON format
   --show-dirs      Print installation directory in output
-
+  -s <query>, --search <query>
+                        Filter results by title or app name (fuzzy, case-insensitive)
 
 Command: list-saves
 usage: legendary list-saves [-h] [<App Name>]
