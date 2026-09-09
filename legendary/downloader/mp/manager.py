@@ -3,6 +3,7 @@
 
 import logging
 import os
+from pathlib import PurePath
 import time
 from collections import Counter, defaultdict, deque
 from logging.handlers import QueueHandler
@@ -12,7 +13,6 @@ from multiprocessing.shared_memory import SharedMemory
 from queue import Empty
 from sys import exit
 from threading import Condition, Thread
-
 from legendary.downloader.mp.workers import DLWorker, FileWorker
 from legendary.models.downloading import (
     AnalysisResult,
@@ -90,10 +90,16 @@ class DLManager(Process):
         self.num_processed_since_last = 0
         self.num_tasks_processed_since_last = 0
 
+    def matches(file, excludelist):
+            for pattern in excludelist:
+                if PurePath(file).full_match(pattern):
+                    return True
+            return False
+    
     def run_analysis(self, manifest: Manifest, old_manifest: Manifest = None,
                      patch=True, resume=True, file_prefix_filter=None,
                      file_exclude_filter=None, file_install_tag=None,
-                     processing_optimization=False) -> AnalysisResult:
+                     file_exclude_configured=None, processing_optimization=False) -> AnalysisResult:
         """
         Run analysis on manifest and old manifest (if not None) and return a result
         with a summary resources required in order to install the provided manifest.
@@ -105,6 +111,7 @@ class DLManager(Process):
         :param file_prefix_filter: Only download files that start with this prefix
         :param file_exclude_filter: Exclude files with this prefix from download
         :param file_install_tag: Only install files with the specified tag
+        :param file_exclude_configured: Exclude files based on a file listing globs
         :param processing_optimization: Attempt to optimize processing order and RAM usage
         :return: AnalysisResult
         """
@@ -206,6 +213,14 @@ class DLManager(Process):
             files_to_skip = set(i.filename for i in manifest.file_manifest_list.elements if not
                                 any(i.filename.lower().startswith(pfx) for pfx in file_prefix_filter))
             self.log.info(f'Found {len(files_to_skip)} files to skip based on include prefix(es)')
+            mc.added -= files_to_skip
+            mc.changed -= files_to_skip
+            mc.unchanged |= files_to_skip
+
+        if file_exclude_configured:
+            if isinstance(file_exclude_configured, str):
+                file_exclude_configured = [file_exclude_configured]
+            files_to_skip = set(i.filename for i in manifest.file_manifest_list.elements if DLManager.matches(i.filename.lower().replace('/', os.sep).replace('\\', os.sep), file_exclude_configured))
             mc.added -= files_to_skip
             mc.changed -= files_to_skip
             mc.unchanged |= files_to_skip
