@@ -2721,22 +2721,24 @@ def main():
     if not stdout.isatty():
         stdout.reconfigure(encoding='utf-8')
 
-    parser = argparse.ArgumentParser(description=f'Legendary v{__version__} - "{__codename__}"')
-    parser.register('action', 'parsers', HiddenAliasSubparsersAction)
+    global_parser = argparse.ArgumentParser(add_help=False)
 
     # general arguments
-    parser.add_argument('-H', '--full-help', dest='full_help', action='store_true',
-                        help='Show full help (including individual command help)')
-    parser.add_argument('-v', '--debug', dest='debug', action='store_true', help='Set loglevel to debug')
-    parser.add_argument('-y', '--yes', dest='yes', action='store_true', help='Default to yes for all prompts')
-    parser.add_argument('-V', '--version', dest='version', action='store_true', help='Print version and exit')
-    parser.add_argument('-c', '--config-file', dest='config_file', action='store', metavar='<path/name>',
-                        help=argparse.SUPPRESS)
-    parser.add_argument('-J', '--pretty-json', dest='pretty_json', action='store_true',
-                        help='Pretty-print JSON')
-    parser.add_argument('-A', '--api-timeout', dest='api_timeout', action='store',
-                        type=float, default=10, metavar='<seconds>',
-                        help='API HTTP request timeout (default: 10 seconds)')
+    global_parser.add_argument('-H', '--full-help', dest='full_help', action='store_true',
+                               help='Show full help (including individual command help)')
+    global_parser.add_argument('-v', '--debug', dest='debug', action='store_true', help='Set loglevel to debug')
+    global_parser.add_argument('-y', '--yes', dest='yes', action='store_true', help='Default to yes for all prompts')
+    global_parser.add_argument('-V', '--version', dest='version', action='store_true', help='Print version and exit')
+    global_parser.add_argument('-c', '--config-file', dest='config_file', action='store', metavar='<path/name>',
+                               help=argparse.SUPPRESS)
+    global_parser.add_argument('-J', '--pretty-json', dest='pretty_json', action='store_true',
+                               help='Pretty-print JSON')
+    global_parser.add_argument('-A', '--api-timeout', dest='api_timeout', action='store',
+                               type=float, default=10, metavar='<seconds>',
+                               help='API HTTP request timeout (default: 10 seconds)')
+
+    parser = argparse.ArgumentParser(description=f'Legendary v{__version__} - "{__codename__}"', parents=[global_parser])
+    parser.register('action', 'parsers', HiddenAliasSubparsersAction)
 
     # all the commands
     subparsers = parser.add_subparsers(title='Commands', dest='subparser_name', metavar='<command>')
@@ -3112,6 +3114,24 @@ def main():
                                      help='Output information in JSON format')
 
     args, extra = parser.parse_known_args()
+
+    # Reparse global parser options if there are unrecognized args
+    # argparse only uses one parser at once, so as soon as it encounters a subparser, the global options can no longer
+    # be set and are silently ignored. Consider something like `legendary list --api-timeout 20` for example, the
+    # subparser does not have a `--api-timeout` option, so it ends up in `extra` (even though it should be in the global
+    # args)
+    if extra:
+        # Remove all default values, otherwise they will overwrite the options the first pass set
+        for action in global_parser._actions:
+            action.default = argparse.SUPPRESS
+
+        global_args, extra = global_parser.parse_known_args(extra)
+        for key, value in global_args.__dict__.items():
+            setattr(args, key, value)
+
+    # Don't pass along the literal "--" if it is added to signal the end of Legendary's arguments
+    if extra and extra[0] == '--':
+        extra.pop(0)
 
     if args.version:
         print(f'legendary version "{__version__}", codename "{__codename__}"')
