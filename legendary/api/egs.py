@@ -170,10 +170,31 @@ class EPCAPI:
         return r.json()
 
     def get_game_assets(self, platform='Windows', label='Live'):
-        r = self.session.get(f'https://{self._launcher_host}/launcher/api/public/assets/{platform}',
-                             params=dict(label=label), timeout=self.request_timeout)
-        r.raise_for_status()
-        return r.json()
+        try:
+            r = self.session.get(f'https://{self._launcher_host}/launcher/api/public/assets/{platform}',
+                                 params=dict(label=label), timeout=self.request_timeout)
+            r.raise_for_status()
+            return r.json()
+        except requests.RequestException as error:
+            if error.response is None or error.response.status_code < 500:
+                raise
+            self.log.warning('Asset request failed, falling back to paginated library data.')
+
+        assets = []
+        for item in self.get_library_items():
+            if item.get('namespace') == 'ue' or item.get('sandboxName') == 'fab-listing-live':
+                continue
+
+            try:
+                manifest = self.get_game_manifest(item['namespace'], item['catalogItemId'], item['appName'],
+                                                  platform=platform, label=label)
+            except requests.RequestException as error:
+                status = error.response.status_code if error.response is not None else None
+                self.log.warning(f'Could not fetch manifest for {item["appName"]} (HTTP {status}).')
+                continue
+            assets.extend(manifest.get('elements', []))
+
+        return assets
 
     def get_game_manifest(self, namespace, catalog_item_id, app_name, platform='Windows', label='Live'):
         r = self.session.get(f'https://{self._launcher_host}/launcher/api/public/assets/v2/platform'
