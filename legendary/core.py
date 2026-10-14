@@ -1654,6 +1654,20 @@ class LegendaryCore:
         if not max_workers:
             max_workers = self.lgd.config.getint('Legendary', 'max_workers', fallback=0)
 
+        exclude_file_path = os.path.join(self.lgd.path, "exclude", game.app_name)
+        self.log.info(f'Using exclude file if it exists: {exclude_file_path}')
+        
+        try:
+            with open(exclude_file_path, 'r', encoding='utf-8') as f:
+                excludes = [line.strip().replace('\\', '/') for line in f if line.strip()]
+
+                if file_exclude_filter is None:
+                    file_exclude_filter = excludes
+                else:
+                    file_exclude_filter += excludes
+        except (OSError, UnicodeError) as e:
+            self.log.debug('Could not load exclude file "%s", skipping: %s',exclude_file_path, e)
+            
         dlm = DLManager(install_path, base_url, manifest_secrets, resume_file=resume_file, status_q=status_q,
                         max_shared_memory=max_shm * 1024 * 1024, max_workers=max_workers,
                         dl_timeout=dl_timeout, bind_ip=bind_ip, case_insensitive=platform.startswith('Win'))
