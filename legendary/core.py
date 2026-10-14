@@ -1654,6 +1654,9 @@ class LegendaryCore:
         if not max_workers:
             max_workers = self.lgd.config.getint('Legendary', 'max_workers', fallback=0)
 
+        exclude_file_path = os.path.join(self.lgd.path, "exclude", game.app_name)
+        self.log.info(f'Using exclude file if it exists: {exclude_file_path}')
+        
         try:
             with open(exclude_file_path, 'r', encoding='utf-8') as f:
                 excludes = [line.strip().replace('\\', '/') for line in f if line.strip()]
