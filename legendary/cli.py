@@ -1709,7 +1709,11 @@ class LegendaryCLI:
             all_versions = {k: v.build_version for k, v in game.asset_infos.items()}
             game_infos.append(InfoItem('All versions', 'platform_versions', all_versions, all_versions))
             # Grant date from entitlements
-            entitlement = next((ent for ent in entitlements if ent['namespace'] == game.namespace), None)
+            entitlement = next((
+                ent
+                for ent in entitlements
+                if ent['namespace'] == game.namespace and 'grantDate' in ent
+            ), None)
             grant_date = entitlement["grantDate"] if entitlement else game.metadata["creationDate"]
             game_infos.append(InfoItem('Grant date', 'grant_date', grant_date, grant_date))
             # Cloud save support for Mac and Windows
