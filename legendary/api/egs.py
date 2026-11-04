@@ -171,7 +171,7 @@ class EPCAPI:
 
     def get_game_assets(self, platform='Windows', label='Live'):
         r = self.session.get(f'https://{self._launcher_host}/launcher/api/public/assets/{platform}',
-                             params=dict(label=label), timeout=self.request_timeout)
+                             params=dict(label=label), timeout=300)
         r.raise_for_status()
         return r.json()
 
