@@ -14,6 +14,7 @@ from locale import getdefaultlocale
 from multiprocessing import Queue
 from platform import system
 from sys import platform as sys_platform
+from threading import Event
 from urllib.parse import parse_qsl, urlencode, urlparse
 from uuid import uuid4
 
@@ -357,7 +358,7 @@ class LegendaryCore:
         return self.lgd.achievements[namespace]
 
     def get_achievements(self, game: Game, update: bool = False):
-        if not game.achievements.achievements:
+        if not game.achievements or not game.achievements.achievements:
             return None
 
         user_achievements = self.get_user_achievements(game.namespace, update)
@@ -569,6 +570,42 @@ class LegendaryCore:
                 fetch_list.append((app_name, _ga.namespace, _ga.catalog_item_id, sidecar_updated))
                 meta_updated = True
 
+        # Achievement definitions are per namespace, so DLCs can reuse the base game's response.
+        achievements_cache = {}
+        achievements_blocked = Event()
+
+        def fetch_achievements(app_name, namespace):
+            if namespace in achievements_cache:
+                return achievements_cache[namespace]
+            # Keep previously cached data when the store API is unavailable,
+            # games without achievements will be retried on the next refresh.
+            cached_game = games.get(app_name)
+            fallback = cached_game.achievements if cached_game else None
+            # The store API sits behind Cloudflare, once it starts returning 429 every following
+            # request fails as well, so stop sending more and making it worse.
+            if achievements_blocked.is_set():
+                return fallback
+
+            self.log.debug(f'Updating achievement information for {app_name}...')
+            try:
+                achievements_api_response = self.egs.get_game_achievements(namespace)
+                achievements = Achievements.from_egs_json(achievements_api_response)
+            except HTTPError as e:
+                if e.response is not None and e.response.status_code == 429:
+                    if not achievements_blocked.is_set():
+                        achievements_blocked.set()
+                        self.log.warning('Epic is rate limiting achievement requests, '
+                                         'skipping achievement data for the remaining games.')
+                else:
+                    self.log.warning(f'Fetching achievements for {app_name} failed: {e!r}')
+                return fallback
+            except Exception as e:
+                self.log.warning(f'Fetching achievements for {app_name} failed: {e!r}')
+                return fallback
+
+            achievements_cache[namespace] = achievements
+            return achievements
+
         def fetch_game_meta(args):
             app_name, namespace, catalog_item_id, update_sidecar = args
             eg_meta = self.egs.get_game_info(namespace, catalog_item_id, timeout=10.0)
@@ -586,9 +623,7 @@ class LegendaryCore:
                     sidecar_json = json.loads(manifest_info['sidecar']['config'])
                     sidecar = Sidecar(config=sidecar_json, rev=manifest_info['sidecar']['rvn'])
 
-            self.log.debug(f'Updating achievement information for {app_name}...')
-            achievements_api_response = self.egs.get_game_achievements(namespace)
-            achievements = Achievements.from_egs_json(achievements_api_response)
+            achievements = fetch_achievements(app_name, namespace)
 
             game = Game(app_name=app_name, app_title=eg_meta['title'], metadata=eg_meta, asset_infos=assets[app_name],
                         sidecar=sidecar, achievements=achievements)
