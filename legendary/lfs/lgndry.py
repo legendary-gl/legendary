@@ -1,9 +1,9 @@
-
 import json
 import logging
 import os
 from collections import defaultdict
 from contextlib import contextmanager
+from hashlib import md5
 from pathlib import Path
 from time import time
 
@@ -14,7 +14,13 @@ from legendary.models.game import Game, GameAsset, InstalledGame
 from legendary.utils.aliasing import generate_aliases
 from legendary.utils.env import is_windows_mac_or_pyi
 
-from .utils import LockedJSONData, clean_filename
+from .utils import (
+    LockedJSONData,
+    clean_filename,
+    decrypt_file,
+    encrypt_to_file,
+    remove_encryption_key,
+)
 
 FILELOCK_DEBUG = False
 
@@ -148,11 +154,48 @@ class LGDLFS:
     @contextmanager
     def userdata_lock(self) -> LockedJSONData:
         """Wrapper around the lock to automatically update user data when it is released"""
-        with LockedJSONData(os.path.join(self.path, 'user.json')) as lock:
-            try:
-                yield lock
-            finally:
-                self._user_data = lock.data
+        if not self.config.getboolean('Legendary', 'disable_token_encryption', fallback=False):
+            with LockedJSONData(lock_file = os.path.join(self.path, 'current_user.json'), save_changes=False) as lock:
+                current_user_data = None
+                old_tokens_data = None
+                migrate_non_encrypted = False
+                try:
+                    current_user_data = lock.data
+                    non_encrypted_path = os.path.join(self.path, "user.json")
+
+                    if current_user_data and (account_id := current_user_data.get('account_id')) is not None:
+                        data_file_path = os.path.join(self.path, f"{md5(account_id.encode('utf-8')).hexdigest()}.enc")
+                        if os.path.exists(data_file_path):
+                            old_tokens_data = decrypt_file(data_file_path, current_user_data)
+                    elif os.path.exists(non_encrypted_path):
+                        migrate_non_encrypted = True
+                        with open(non_encrypted_path, "r", encoding='utf-8') as f:
+                            old_tokens_data = json.load(f)
+                        os.remove(non_encrypted_path)
+
+                    if old_tokens_data:
+                        lock.data = old_tokens_data
+                    yield lock
+                finally:
+                    new_user_data = {}
+                    if lock.data:
+                        if (account_id := lock.data.get('account_id')) is not None:
+                            new_user_data['account_id'] = account_id
+                        if (display_name := lock.data.get('displayName')) is not None:
+                            new_user_data['displayName'] = display_name
+
+                        if (old_tokens_data != lock.data or migrate_non_encrypted) and (account_id := new_user_data.get('account_id')) is not None:
+                            new_data_filename = f"{md5(account_id.encode('utf-8')).hexdigest()}.enc"
+                            new_user_data = encrypt_to_file(os.path.join(self.path, new_data_filename), new_user_data, lock.data)
+                            with open(os.path.join(self.path, "current_user.json"), 'w', encoding='utf-8') as f:
+                                json.dump(new_user_data, f, indent=2, sort_keys=True)
+                    self._user_data = lock.data
+        else:
+            with LockedJSONData(lock_file = os.path.join(self.path, 'user.json')) as lock:
+                try:
+                    yield lock
+                finally:
+                    self._user_data = lock.data
 
     @property
     def userdata(self):
@@ -172,6 +215,14 @@ class LGDLFS:
 
     def invalidate_userdata(self):
         with self.userdata_lock as lock:
+            userdata_file = os.path.join(self.path, 'current_user.json')
+            if lock.data and (account_id := lock.data.get('account_id')) is not None:
+                remove_encryption_key(lock.data)
+                old_data_file = os.path.join(self.path, f"{md5(account_id.encode('utf-8')).hexdigest()}.enc")
+                if os.path.exists(old_data_file):
+                    os.remove(old_data_file)
+            if os.path.exists(userdata_file):
+                os.remove(userdata_file)
             lock.clear()
 
     @property
